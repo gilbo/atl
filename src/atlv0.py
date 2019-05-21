@@ -9,7 +9,7 @@ from adt import memo as ADTmemo
 # Tensor Language IR
 
 IR = ADT("""
-module IR {
+module IR_v0 {
     expr = Var      ( string name )
          | Const    ( float  val  )
          | Add      ( expr lhs, expr rhs )
@@ -80,6 +80,9 @@ class TypeChecker:
         self._errors = []
         self._typ    = self.check(expr)
         self.report_errors()
+
+    def get_typ(self):
+        return self._typ
     
     def _err(self, node, msg):
         # might want to discern location
@@ -117,8 +120,6 @@ class TypeChecker:
         if   nclass is IR.Var:
             lookup = self._get_var(node, node.name)
             if lookup == None:
-                self._err(node, f"expected variable '{node.name}' "
-                                f"to have a type annotated.")
                 return IR.terr
             return lookup
 
@@ -151,7 +152,7 @@ class TypeChecker:
         elif nclass is IR.Proj:
             subtyp = self.check(node.arg)
             if subtyp == IR.terr: return IR.terr
-            elif type(subtyp) is not T.TPair:
+            elif type(subtyp) is not IR.TPair:
                 self._err(node, f"Was expecting a pair as argument: {node}")
                 return IR.terr
             elif node.idx == 0:   return subtyp.lhs
@@ -518,7 +519,7 @@ class Func():
             self._arglist.append( (nm,typ) )
             self._argdict[nm] = typ
         # run basic type-checking
-        TypeChecker(expr,self._argdict).report_errors()
+        self._rettyp  = TypeChecker(expr,self._argdict).get_typ()
 
     def interpret(self, *args, **kwargs):
         call_args   = {}

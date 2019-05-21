@@ -44,8 +44,8 @@ def run_tut1():
     # set up the buffer
     W,H      = 1000,1000
     i32E     = C.hwrap_i32_to_expr
-    C.hwrap_set_func_bound_estimate(gradient,x,i32E(0),i32E(W))
-    C.hwrap_set_func_bound_estimate(gradient,y,i32E(0),i32E(H))
+    C.hwrap_set_func_bound_estimate(gradient,0,i32E(0),i32E(W))
+    C.hwrap_set_func_bound_estimate(gradient,1,i32E(0),i32E(H))
     buf, arr = new_buffer(0,0,W,H)
 
     #C.hwrap_func_print_loop_nest(gradient)
@@ -139,8 +139,8 @@ def blur_test_0(use_auto=False):
     y        = C.hwrap_new_var(b"y")
     
     blur_x, blur_y = build_blur(orig,x,y)
-    fEst(blur_y,x,i32E(1),i32E(W-2))
-    fEst(blur_y,y,i32E(1),i32E(H-2))
+    fEst(blur_y,0,i32E(1),i32E(W-2))
+    fEst(blur_y,1,i32E(1),i32E(H-2))
 
     if use_auto:
         print("Using auto-scheduler...")

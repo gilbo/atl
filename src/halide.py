@@ -19,7 +19,7 @@ if not os.path.isfile(_HALIDE_STATIC):
     raise IOError(f"Halide library not found at {HALIDE_STATIC}")
 
 # Make sure that we have a cache directory
-_HERE_DIR       = os.path.abspath('')
+_HERE_DIR       = os.path.dirname(os.path.abspath(__file__))
 _C_DIR          = os.path.join(_HERE_DIR,'._halide_c_wrap_cache')
 if not os.path.isdir(_C_DIR):
     os.mkdir(_C_DIR)
@@ -353,8 +353,10 @@ HWGen.on_gen(_install_destructors)
 HWGen.fun("hwrap_new_func",[('name','s')],hw_func_t,"""
     return _to_F(new Halide::Func(name));""")
 HWGen.fun("hwrap_set_func_bound_estimate",
-    [('f',hw_func_t),('v',hw_var_t),('min',hw_expr_t),('extent',hw_expr_t)],'v',"""
-    _from_F(f)->estimate(*_from_V(v),*_from_E(min),*_from_E(extent));""")
+    [('f',hw_func_t),('d','i32'),
+     ('min',hw_expr_t),('extent',hw_expr_t)],'v',"""
+    auto args = _from_F(f)->args();
+    _from_F(f)->estimate(args[d],*_from_E(min),*_from_E(extent));""")
 
 # VAR
 HWGen.fun("hwrap_new_var",[('name','s')],hw_var_t,"""
@@ -420,14 +422,31 @@ HWGen.fun("hwrap_rdom_to_expr",[('r_handle',hw_rdom_t)],hw_expr_t,"""
 HWGen.fun("hwrap_param_to_expr",[('p_handle',hw_param_t)],hw_expr_t,"""
     return _to_E(new Halide::Expr( *(_from_P(p_handle)) ));""")
 # binary operations
-HWGen.fun("hwrap_add",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
-    return _to_E(new Halide::Expr(  *_from_E(lhs)  +  *_from_E(rhs) ));""")
-HWGen.fun("hwrap_sub",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
-    return _to_E(new Halide::Expr(  *_from_E(lhs)  -  *_from_E(rhs) ));""")
-HWGen.fun("hwrap_mul",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
-    return _to_E(new Halide::Expr( (*_from_E(lhs)) * (*_from_E(rhs)) ));""")
-HWGen.fun("hwrap_div",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
-    return _to_E(new Halide::Expr( (*_from_E(lhs)) / (*_from_E(rhs)) ));""")
+for opnm,binop in [
+    ('add','+'),
+    ('sub','-'),
+    ('mul','*'),
+    ('div','/'),
+    ('eq', '=='),]:
+        HWGen.fun(f"hwrap_{opnm}",
+            [('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"\n"+
+            "return _to_E(new Halide::Expr("+
+                f" (*_from_E(lhs)) {binop} (*_from_E(rhs)) ));")
+#HWGen.fun("hwrap_add",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
+#    return _to_E(new Halide::Expr(  *_from_E(lhs)  +  *_from_E(rhs) ));""")
+#HWGen.fun("hwrap_sub",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
+#    return _to_E(new Halide::Expr(  *_from_E(lhs)  -  *_from_E(rhs) ));""")
+#HWGen.fun("hwrap_mul",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
+#    return _to_E(new Halide::Expr( (*_from_E(lhs)) * (*_from_E(rhs)) ));""")
+#HWGen.fun("hwrap_div",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
+#    return _to_E(new Halide::Expr( (*_from_E(lhs)) / (*_from_E(rhs)) ));""")
+#HWGen.fun("hwrap_eq",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
+#    return _to_E(new Halide::Expr( (*_from_E(lhs)) == (*_from_E(rhs)) ));""")
+HWGen.fun("hwrap_select",[('cond',hw_expr_t),
+                          ('if_T',hw_expr_t),
+                          ('if_F',hw_expr_t)],hw_expr_t,"""
+    return _to_E(new Halide::Expr(Halide::select(
+        *_from_E(cond), *_from_E(if_T), *_from_E(if_F) )));""")
 # func access
 HWGen.fun("hwrap_access_func",
     [('f',hw_func_t),
@@ -438,6 +457,11 @@ HWGen.fun("hwrap_access_func",
         args.push_back( *_from_E(idx[k]) );
     Halide::FuncRef fr = (*_from_F(f))(args);
     return _to_E(new Halide::Expr( fr ));""")
+
+# big sum
+HWGen.fun("hwrap_big_sum",[('r',hw_rdom_t),('e',hw_expr_t)],hw_expr_t,"""
+    return _to_E(new Halide::Expr(Halide::sum( *_from_R(r),
+                                               *_from_E(e) )));""")
 
 # Statements
 HWGen.fun("hwrap_pure_def",

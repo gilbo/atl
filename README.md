@@ -6,9 +6,9 @@ _(What should this be called?  Iver after Iverson?  ATL after APL?  Ivar for ind
 This is a working space for sketching a tensor language.  I am not placing a high degree of stress on portability right now.  Please schedule time with me to iron out various portability issues if you want to get this working on Linux or Windows, your machine etc.
 
 
-## Notebooks
+## Early Notebooks
 
-Most of the work has been sketched in Notebooks and then copied into the `src/` files with some degree of editing.  Perhaps a final version should edit the notebooks up to match the source exactly for posterity's sake.
+Most of the work has been sketched in notebooks and then copied into the `src/` files with some degree of editing.  Perhaps a final version should edit the notebooks up to match the source exactly for posterity's sake.
 
 The notebooks *ought* to be read chronologically.  That order is recorded here:
 
@@ -17,7 +17,7 @@ The notebooks *ought* to be read chronologically.  That order is recorded here:
 * A Tensor Language v0
 * Wrapping Halide Part 1
 * Wrapping Halide Part 2
-* Compiling A Tensor Language (in progress)
+* Compiling A Tensor Language v0
 
 I will now briefly gloss each of these.
 
@@ -36,12 +36,12 @@ This is the main course of the notebooks so far.  It shows how to bootstrap up a
 
 ### Wrapping Halide, Part 1 & 2
 
-This is an exercise in how to pare down a whole build-system and library wrapper into less than 500 lines of code using clever meta-programming and filesystem inspection/introspection tricks.  It exists to support a careful attempt to compile the tensor language efficiently.  (see `src/halide.py` for the result of this notebook)
+This is an exercise in how to pare down a whole build-system and library wrapper into less than 500 lines of code using clever meta-programming and filesystem inspection/introspection tricks.  It exists to support a careful attempt to compile the tensor language efficiently.  (see `src/halide.py` for the result of this notebook, and `test_halide.py` for a very few test cases present)
 
 
-### Compiling a Tensor Language
+### Compiling a Tensor Language v0
 
-Still in progress.
+An experiment (quite long) in forcing the tensor language to compile down to Halide.  The results are collected in `src/atlv0_compile.py`
 
 
 

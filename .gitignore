@@ -3,4 +3,6 @@
 __pycache__
 .DS_Store
 
-src/._halide_c_wrap_cache/
+._halide_c_wrap_cache/
+
+local_notes

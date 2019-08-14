@@ -23,21 +23,24 @@ pred_ops = {
 
 UST = ADT("""
 module Untyped_AST {
-  function  = ( name?     name,
-                var_decl* vars,
-                sym*      sizes,
-                rel_decl* relations
-                expr      body )
+  function  = ( name?       name,
+                name*       arg_order,
+                var_decl*   vars,
+                size_decl*  sizes,
+                rel_decl*   relations,
+                expr        body,
+                srcinfo     srcinfo )
 
-  var_decl  = ( name name, type   type  )
-  rel_decl  = ( name name, range* sizes )
+  var_decl  = ( name name, type   type,  srcinfo srcinfo )
+  size_decl = ( sym  name,               srcinfo srcinfo )
+  rel_decl  = ( name name, range* sizes, srcinfo srcinfo )
 
   expr = Var      ( name  name )
        | Const    ( float val  )
        | Add      ( expr lhs, expr rhs )
        | Mul      ( expr lhs, expr rhs )
-       | Pair     ( expr lhs, expr rhs )
-       | Proj     ( int01 idx, expr arg )
+       | Tuple    ( expr* args )
+       | Proj     ( plabel idx, expr arg )
        | Gen      ( name name, range range, expr body )
        | Sum      ( name name, range range, expr body )
        | Access   ( expr    base,  index* idx )
@@ -45,19 +48,22 @@ module Untyped_AST {
        | Indicate ( pred    pred,  expr body )
        -- important to express sharing of computation results
        | Let      ( assign* stmts, expr ret )
+       attributes( srcinfo srcinfo )
 
-  assign  = ( name name, type? type, expr rhs )
+  assign  = ( name name, type? type, expr rhs, srcinfo srcinfo )
   
   index   = IdxConst  ( int      val  )
           | IdxVar    ( name     name )
           | IdxSize   ( sym      name )
           | IdxAdd    ( index    lhs,   index rhs )
           | IdxScale  ( fraction coeff, index idx )
+          attributes( srcinfo srcinfo )
   
   pred    = Cmp       ( pred_op op, index lhs,  index rhs )
           | Relation  ( name name,  index* args )
           | Conj      ( pred lhs,   pred rhs    )
           | Disj      ( pred lhs,   pred rhs    )
+          attributes( srcinfo srcinfo )
 }
 """, {
   'name':     is_valid_name,
@@ -65,27 +71,32 @@ module Untyped_AST {
   'type':     T.is_type,
   'range':    lambda x: is_pos_int(x) or (type(x) is Sym),
   'fraction': lambda x: type(x) is Fraction,
-  'int01':    lambda x: x == 0 or x == 1,
+  'pred_op':  lambda x: x in pred_ops,
+  'plabel':   lambda x: x is int or is_valid_name(x),
+  'srcinfo':  lambda x: type(x) is SrcInfo,
 })
 
 # Typed AST
 AST = ADT("""
 module AST {
-  function  = ( name?     name,
-                var_decl* vars,
-                sym*      sizes,
-                rel_decl* relations
-                expr      body )
+  function  = ( name?       name,
+                sym*        arg_order,
+                var_decl*   vars,
+                size_decl*  sizes,
+                rel_decl*   relations,
+                expr        body,
+                srcinfo     srcinfo )
 
-  var_decl  = ( sym name, type   type  )
-  rel_decl  = ( sym name, range* sizes )
+  var_decl  = ( sym name, type   type,  srcinfo srcinfo )
+  size_decl = ( sym name,               srcinfo srcinfo )
+  rel_decl  = ( sym name, range* sizes, srcinfo srcinfo )
 
   expr = Var      ( sym   name )
        | Const    ( float val  )
        | Add      ( expr lhs, expr rhs )
        | Mul      ( expr lhs, expr rhs )
-       | Pair     ( expr lhs, expr rhs )
-       | Proj     ( int01 idx, expr arg )
+       | Tuple    ( expr* args )
+       | Proj     ( plabel idx, expr arg )
        | Gen      ( sym name, range range, expr body )
        | Sum      ( sym name, range range, expr body )
        | Access   ( expr    base,  index* idx )
@@ -93,20 +104,22 @@ module AST {
        | Indicate ( pred    pred,  expr body )
        -- important to express sharing of computation results
        | Let      ( assign* stmts, expr ret )
-       attributes( type type )
+       attributes( type type, srcinfo srcinfo )
 
-  assign  = ( sym name, type type, expr rhs )
+  assign  = ( sym name, type type, expr rhs, srcinfo srcinfo )
   
   index   = IdxConst  ( int      val  )
           | IdxVar    ( sym      name )
           | IdxSize   ( sym      name )
           | IdxAdd    ( index    lhs,   index rhs )
           | IdxScale  ( fraction coeff, index idx )
+          attributes( srcinfo srcinfo )
   
   pred    = Cmp       ( pred_op op, index lhs,  index rhs )
           | Relation  ( sym name,   index* args )
           | Conj      ( pred lhs,   pred rhs    )
           | Disj      ( pred lhs,   pred rhs    )
+          attributes( srcinfo srcinfo )
 }
 """, {
   'name':     is_valid_name,
@@ -114,7 +127,9 @@ module AST {
   'type':     T.is_type,
   'range':    lambda x: is_pos_int(x) or (type(x) is Sym),
   'fraction': lambda x: type(x) is Fraction,
-  'int01':    lambda x: x == 0 or x == 1,
+  'pred_op':  lambda x: x in pred_ops,
+  'plabel':   lambda x: x is int,
+  'srcinfo':  lambda x: type(x) is SrcInfo,
 })
 
 
@@ -159,10 +174,11 @@ def _expr_str(e,prec=0):
 def _expr_str(e,prec=0):
   s = f"{e.lhs._expr_str(60)} * {e.rhs._expr_str(61)}"
   return f"({s})" if prec > 60 else s
-@extclass(UST.Pair)
-@extclass(AST.Pair)
+@extclass(UST.Tuple)
+@extclass(AST.Tuple)
 def _expr_str(e,prec=0):
-  return f"({e.lhs._expr_str(0)},{e.rhs._expr_str(0)})"
+  args = ",".join([ a._expr_str(0) for a in e.args ])
+  return f"({args})"
 @extclass(UST.Proj)
 @extclass(AST.Proj)
 def _expr_str(e,prec=0):
@@ -236,10 +252,10 @@ UST.index.__str__ = lambda e: e._index_str()
 @extclass(AST.Cmp)
 def _pred_str(p,prec=0):
   op_prec = _AST_op_prec[p.op]
-  s = f"{e.lhs._pred_str(op_prec)} {p.op} {e.rhs._pred_str(op_prec+1)}"
+  s = f"{p.lhs._index_str(op_prec)} {p.op} {p.rhs._index_str(op_prec+1)}"
   return f"({s})" if prec > op_prec else s
-@extclass(UST.Cmp)
-@extclass(AST.Cmp)
+@extclass(UST.Relation)
+@extclass(AST.Relation)
 def _pred_str(p,prec=0):
   args = ",".join([ str(i) for i in p.args ])
   s = f"{str(p.name)}[{idx}]"
@@ -262,7 +278,7 @@ UST.pred.__str__ = lambda p: p._pred_str()
 @extclass(UST.function)
 @extclass(AST.function)
 def _function_str(f):
-  sstr  = "sizes    "+(', '.join([ str(s) for s in f.sizes ]))
+  sstr  = "sizes    "+(', '.join([ str(sz.name) for sz in f.sizes ]))
   vstr  = "vars     "+(', '.join([ f"{str(vd.name)}:{vd.type}"
                                   for vd in f.vars ]))
   rstr  = "rels     "+(', '.join([
@@ -367,6 +383,19 @@ class _TypeChecker:
     self._input_func  = func
     self._errors      = []
 
+    # build reverse mapping (arg_idx) of arg_order: Index <-> ArgName
+    arg_syms          = [ None for _ in func.arg_order ]
+    arg_idx           = {}
+    for idx,nm in enumerate(func.arg_order):
+      if nm in arg_idx:
+        raise TypeError(f"Cannot repeat argument names: '{nm}'")
+      arg_idx[nm] = idx
+    # check that the number of arguments is consistent...
+    len_match = ( len(func.arg_order) == ( len(func.vars) +
+                                           len(func.sizes) +
+                                           len(func.relations) ))
+    assert len_match, "Inconsistent number of arg_order arguments"
+
     # var, size, rel definitions
     # additionally create the newly symbol-ified output AST header
     vs, szs, rels     = [], [], []
@@ -374,14 +403,17 @@ class _TypeChecker:
       if self._ctxt.get(v.name) is None:
         V = _Var(v.name,v.type)
         self._ctxt.set(v.name,V)
-        vs.append( AST.var_decl(V.sym, V.type) )
+        vs.append( AST.var_decl(V.sym, V.type, v.srcinfo) )
+        arg_syms[arg_idx[str(v.name)]] = V.sym
       else:
         self._err(f"variable name '{v.name}' already used")
-    for nm in func.sizes:
-      if self._ctxt.get(nm) is None:
-        S = _Size(nm)
-        self._ctxt.set(nm,S)
-        szs.append( S.sym )
+    for sz in func.sizes:
+      if ( self._ctxt.get(sz.name) is None and
+           self._ctxt.get(str(sz.name)) is None ):
+        S = _Size(sz.name)
+        self._ctxt.set(sz.name,S)
+        szs.append( AST.size_decl( S.sym, sz.srcinfo ) )
+        arg_syms[arg_idx[str(sz.name)]] = S.sym
       else:
         self._err(f"size variable name '{nm}' already used")
     for r in func.relations:
@@ -389,7 +421,8 @@ class _TypeChecker:
         sizes   = [ self._get_range(r,s) for s in r.sizes ]
         R = _Rel(r.name,sizes)
         self._ctxt.set(r.name,R)
-        rels.append( AST.rel_decl(R.sym, sizes) )
+        rels.append( AST.rel_decl(R.sym, sizes, r.srcinfo) )
+        arg_syms[arg_idx[str(r.name)]] = R.sym
       else:
         self._err(f"relation name '{r.name}' already used")
     # if the header had name clashes, then early error exit
@@ -403,7 +436,8 @@ class _TypeChecker:
 
     # finally, cache the typed AST on this pass object
     # and report errors encountered while type-checking the body
-    self._out_func    = AST.function(func.name, vs, szs, rels, body)
+    self._out_func    = AST.function(func.name, arg_syms, vs, szs, rels,
+                                     body, func.srcinfo)
     self._report_errors()
 
   def typed_ast(self):
@@ -413,7 +447,7 @@ class _TypeChecker:
   def _err(self, node, msg):
     # might want to discern location
     # via `node` eventually
-    self._errors.append(msg)
+    self._errors.append(f"{node.srcinfo}: {msg}")
   
   def _report_errors(self):
     """ Check for and raise accumulated type-checking errors
@@ -425,7 +459,7 @@ class _TypeChecker:
   def _get_var(self, node, name):
     """ Retrieve a variable and error if a non-variable was found """
     V = self._ctxt.get(name)
-    if V == None:
+    if V is None:
       self._err(node, f"variable '{name}' was undefined")
       return Sym("Error"), T.error
     elif not type(V) is _Var:
@@ -439,7 +473,7 @@ class _TypeChecker:
         Returns symbol for the name and list of argument ranges;
         Returns None instead of a list on failed lookup """
     R = self._ctxt.get(name)
-    if R == None:
+    if R is None:
       self._err(node, f"relation '{name}' was undefined")
       return None
     elif not type(R) is _Rel:
@@ -453,7 +487,7 @@ class _TypeChecker:
         Accepts and returns integer arguments unmodified """
     if type(name) is int: return name
     S = self._ctxt.get(name)
-    if S == None:
+    if S is None:
       self._err(node, f"size variable '{name}' was undefined")
       return None
     elif not type(S) is _Size:
@@ -465,7 +499,7 @@ class _TypeChecker:
   def _get_index(self, node, name):
     """ Retrieve an index variable and error if not found """
     I = self._ctxt.get(name)
-    if I == None:
+    if I is None:
       self._err(node, f"index variable '{name}' was undefined")
       return None
     elif type(I) is _IVar:
@@ -480,16 +514,16 @@ class _TypeChecker:
     nclass = type(node)
     if   nclass is UST.Var:
       nm, typ   = self._get_var(node, node.name)
-      return AST.Var( nm, typ )
+      return AST.Var( nm, typ, node.srcinfo )
 
     elif nclass is UST.Const:
-      return AST.Const( node.val, T.num )
+      return AST.Const( node.val, T.num, node.srcinfo )
     
     elif nclass is UST.Add or nclass is UST.Mul:
       lhs   = self.check(node.lhs)
       rhs   = self.check(node.rhs)
       typ   = lhs.type
-      if lhs.type == T.error or rhs.type == T.error:
+      if lhs.type is T.error or rhs.type is T.error:
         typ = T.error
       elif lhs.type != rhs.type:
         op  = '+' if nclass is UST.Add else '*'
@@ -501,25 +535,44 @@ class _TypeChecker:
         typ = T.error
 
       cstr  = AST.Add if nclass is UST.Add else AST.Mul
-      return cstr( lhs, rhs, typ )
+      return cstr( lhs, rhs, typ, node.srcinfo )
     
-    elif nclass is UST.Pair:
-      lhs   = self.check(node.lhs)
-      rhs   = self.check(node.rhs)
-      typ   = T.Pair(lhs.type, rhs.type)
-      if lhs.type == T.error or rhs.type == T.error:
-        typ = T.error
-      return AST.Pair( lhs, rhs, typ )
+    elif nclass is UST.Tuple:
+      args    = [ self.check(a) for a in node.args ]
+      typ     = T.Tuple(None, [ a.type for a in args ])
+      for a in args:
+        if a.type is T.error:
+          typ = T.error
+      return AST.Tuple( args, typ, node.srcinfo )
     
     elif nclass is UST.Proj:
       arg   = self.check(node.arg)
+      idx   = 0 # default for errors
       typ   = T.error
-      if arg.type == T.error: pass
-      elif type(arg.type) is not T.Pair:
-        self._err(node, f"Was expecting a pair as argument: {node}")
-      elif node.idx == 0: typ = arg.type.fst
-      else:               typ = arg.type.snd
-      return AST.Proj(node.idx, arg, typ)
+      if arg.type is T.error: pass
+      elif type(arg.type) is not T.Tuple:
+        self._err(node, f"Was expecting a tuple as argument")
+      else:
+        # figure out which numeric index this is...
+        idx   = node.idx
+        n_tup = len(arg.type.types)
+        if type(idx) is int:
+          if idx < 0 or idx >= n_tup:
+            self._err(node, f"index {idx} was not between 0 and {n_tup}")
+          else:
+            typ = arg.type.types[idx]
+        else:
+          assert is_valid_name(idx)
+          # find this label...
+          for k,nm in enumerate(arg.type.names):
+            if nm == idx:
+              idx = k
+              typ = arg.type.types[idx]
+          # if we failed to find it...
+          if type(idx) is str:
+            self._err(node, f"could not find tuple entry label '{idx}'")
+            idx = 0
+      return AST.Proj(idx, arg, typ, node.srcinfo)
     
     elif nclass is UST.Gen or nclass is UST.Sum:
       self._ctxt.push()
@@ -537,7 +590,7 @@ class _TypeChecker:
       else: # nclass is IR.Gen
         return T.Tensor(rng, body.type)
       bigop = AST.Gen if nclass is UST.Gen else AST.Sum
-      return bigop(I.sym, rng, body, typ)
+      return bigop(I.sym, rng, body, typ, node.srcinfo)
     
     elif nclass is UST.Access:
       base    = self.check(node.base)
@@ -556,12 +609,12 @@ class _TypeChecker:
           else:
             typ = typ.type
         # `typ` should now have the resulting type after len(idx) indexings
-      return AST.Access(base, idx, typ)
+      return AST.Access(base, idx, typ, node.srcinfo)
     
     elif nclass is UST.Indicate:
       pred    = self.check(node.pred)
       body    = self.check(node.body)
-      return AST.Indicate(pred, body, body.type)
+      return AST.Indicate(pred, body, body.type, node.srcinfo)
     
     elif nclass is UST.Let:
       # process all the statements
@@ -575,48 +628,48 @@ class _TypeChecker:
                        f"match type annotation ({s.type})")
         V     = _Var(s.name,typ)
         self._ctxt.set(s.name,V)
-        stmts.append( AST.assign(V.name, V.type, rhs) )
+        stmts.append( AST.assign(V.name, V.type, rhs, s.srcinfo) )
 
       # and then the return expression
       ret     = self.check(node.ret)
       self._ctxt.pop()
 
-      return AST.Let(stmts,ret, ret.type)
+      return AST.Let(stmts,ret, ret.type, node.srcinfo)
 
     #          index expressions          #
 
     elif nclass is UST.IdxConst:
-      return AST.IdxConst(node.val)
+      return AST.IdxConst(node.val, node.srcinfo)
 
     elif nclass is UST.IdxVar:
       nm, rng = self._get_index(node,node.name)
       if nm is None:
-        return AST.IdxVar( Sym("Error") )
+        return AST.IdxVar( Sym("Error"), node.srcinfo )
       else:
-        return AST.IdxVar( nm )
+        return AST.IdxVar( nm, node.srcinfo )
 
     elif nclass is UST.IdxSize:
       nm = self._get_range(node,node.name)
       if nm is None:
-        return AST.IdxSize( Sym("Error") )
+        return AST.IdxSize( Sym("Error"), node.srcinfo )
       else:
-        return AST.IdxSize( nm )
+        return AST.IdxSize( nm, node.srcinfo )
 
     elif nclass is UST.IdxAdd:
       lhs     = self.check(node.lhs)
       rhs     = self.check(node.rhs)
-      return AST.IdxAdd(lhs, rhs)
+      return AST.IdxAdd(lhs, rhs, node.srcinfo)
 
     elif nclass is UST.IdxScale:
       idx     = self.check(node.idx)
-      return AST.IdxScale(node.coeff, idx)
+      return AST.IdxScale(node.coeff, idx, node.srcinfo)
 
     #          predicate expressions          #
 
     elif nclass is UST.Cmp:
       lhs     = self.check(node.lhs)
       rhs     = self.check(node.rhs)
-      return AST.Cmp(node.op, lhs, rhs)
+      return AST.Cmp(node.op, lhs, rhs, node.srcinfo)
 
     elif nclass is UST.Relation:
       args    = [ self.check(i) for i in node.args ]
@@ -625,13 +678,13 @@ class _TypeChecker:
       elif len(szs) != len(args):
         self._err(node, f"expected {len(szs)} arguments to relation "
                         f"'{nm}', but got {len(args)}")
-      return AST.Relation(nm,args)
+      return AST.Relation(nm,args,node.srcinfo)
 
     elif nclass is UST.Conj or nclass is UST.Disj:
       lhs     = self.check(node.lhs)
       rhs     = self.check(node.rhs)
       p_op    = AST.Conj if nclass is UST.Conj else AST.Disj
-      return p_op(lhs, rhs)
+      return p_op(lhs, rhs, node.srcinfo)
 
     #          catch-all error          #
 

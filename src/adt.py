@@ -223,7 +223,7 @@ def ADT(asdl_str, ext_checks={}):
 _builtin_keymap = {
     'string'  : lambda x: x,
     'int'     : lambda x: x,
-    'object'  : id,
+    'object'  : lambda x: x,
     'float'   : lambda x: x,
     'bool'    : lambda x: x,
 }
@@ -238,7 +238,7 @@ def _add_memoization(mod,whitelist,ext_key):
         keymap[nm] = id
     
     def create_listkey(f):
-        i = 'i' if f.name != i else 'ii'
+        i = 'i' if f.name != 'i' else 'ii'
         return (f"tuple([ K['{f.type}']({i}) "
                 f"for {i} in {f.name} ]),")
     def create_optkey(f):

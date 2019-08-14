@@ -150,7 +150,7 @@ class HWGen:
         h_time      = get_time(_HALIDE_STATIC)
         
         # Check whether the CPP file needs to be re-written
-        write_cpp   = True if cpp_time == None else False
+        write_cpp   = True if cpp_time is None else False
         if cpp_time:
             with open(CPP,'r',encoding = 'utf-8') as f:
                 if src_str != f.read():
@@ -174,7 +174,7 @@ class HWGen:
                     raise IOError(f"library {_name} already loaded")
         
         # Load the module if needed
-        if HWGen._module == None:
+        if HWGen._module is None:
             HWGen._module = ctypes.CDLL(SO)
             for wrap in HWGen._ctype_wraps:
                 wrap(HWGen._module)
@@ -361,7 +361,6 @@ def _install_destructors(mod):
 # install destructors onto objects
 HWGen.on_gen(_install_destructors)
 
-
 # FUNC
 HWGen.fun("hwrap_new_func",[('name','s')],hw_func_t,"""
     return _to_F(new Halide::Func(name));""")
@@ -464,6 +463,13 @@ HWGen.fun("hwrap_select",[('cond',hw_expr_t),
                           ('if_F',hw_expr_t)],hw_expr_t,"""
     return _to_E(new Halide::Expr(Halide::select(
         *_from_E(cond), *_from_E(if_T), *_from_E(if_F) )));""")
+# min and max operations
+HWGen.fun("hwrap_min",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
+    return _to_E(new Halide::Expr(Halide::min(*_from_E(lhs),
+                                              *_from_E(rhs))));""")
+HWGen.fun("hwrap_max",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
+    return _to_E(new Halide::Expr(Halide::max(*_from_E(lhs),
+                                              *_from_E(rhs))));""")
 # func access
 HWGen.fun("hwrap_access_func",
     [('f',hw_func_t),
@@ -477,6 +483,7 @@ HWGen.fun("hwrap_access_func",
 
 # big sum
 HWGen.fun("hwrap_big_sum",[('r',hw_rdom_t),('e',hw_expr_t)],hw_expr_t,"""
+    std::cout << "TEST: BIG SUM" << std::endl;
     return _to_E(new Halide::Expr(Halide::sum( *_from_R(r),
                                                *_from_E(e) )));""")
 

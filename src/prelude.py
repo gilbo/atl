@@ -1,5 +1,7 @@
 
 from re import compile as _re_compile
+from inspect import (currentframe as _curr_frame,
+                     getframeinfo as _get_frame_info)
 
 def is_pos_int(obj):
   return type(obj) is int and obj >= 1
@@ -25,6 +27,8 @@ class Sym:
   def __repr__(self):
     return f"{self._nm}${self._id}"
 
+  def __hash__(self): return id(self)
+
   def name(self):
     return self._nm
 
@@ -49,3 +53,23 @@ class Context:
 # from a github gist by victorlei
 def extclass(cls):
   return lambda f: (setattr(cls,f.__name__,f) or f)
+
+class SrcInfo:
+  def __init__(self,filename,lineno,function=None):
+    self.filename = filename
+    self.lineno   = lineno
+    self.function = function
+  def __str__(self): return f"{self.filename}:{self.lineno}"
+
+def get_srcinfo(depth=1):
+  f = _curr_frame()
+  for k in range(0,depth): f = f.f_back
+  finfo = _get_frame_info(f)
+  filename, lineno, function = finfo.filename, finfo.lineno, finfo.function
+  del f, finfo
+  return SrcInfo(filename, lineno, function)
+
+_null_srcinfo_obj = SrcInfo("unknown",0)
+def null_srcinfo(): return _null_srcinfo_obj
+
+

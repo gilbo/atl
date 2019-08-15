@@ -1,13 +1,15 @@
 
-from prelude import *
+from .prelude import *
 
-import atl_types as T
-from frontend import UST, AST
-from bounds import BoundsExtraction, BoundsCheck
+from . import atl_types as T
+from .frontend import UST, AST
+from .bounds import BoundsExtraction, BoundsCheck
 
 import numpy as np
 
-from py_type_values import *
+from .py_type_values import *
+
+from .interpreter import Interpret
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -92,9 +94,22 @@ class Function:
 
     return vs, szs, rels, output
 
-  def run_interpreter(self, *args, **kwargs):
+  def _pack_return_scalars(self,typ,output):
+    if typ is T.num:
+      return output[0]
+    elif type(typ) is T.Tuple:
+      ctr = get_python_named_tuple(typ)
+      return ctr(tuple( self._pack_return_scalars(o) for o in output ))
+    elif type(typ) is T.Tensor:
+      return output
+
+  def interpret(self, *args, **kwargs):
     vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
-    # blah
+    Interpret(self._ast, vs, szs, rels, output)
+    return self._pack_return_scalars(self._ast.rettype, output)
+
+  def __call__(self, *args, **kwargs):
+    return self.interpret(*args,**kwargs)
 
 
 

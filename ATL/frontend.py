@@ -1,11 +1,11 @@
 
 
-from adt import ADT
-from adt import memo as ADTmemo
+from .adt import ADT
+from .adt import memo as ADTmemo
 
-from prelude import *
+from .prelude import *
 
-import atl_types as T
+from . import atl_types as T
 
 from fractions import Fraction
 
@@ -25,6 +25,7 @@ UST = ADT("""
 module Untyped_AST {
   function  = ( name?       name,
                 name*       arg_order,
+                type?       rettype,
                 var_decl*   vars,
                 size_decl*  sizes,
                 rel_decl*   relations,
@@ -81,6 +82,7 @@ AST = ADT("""
 module AST {
   function  = ( name?       name,
                 sym*        arg_order,
+                type        rettype,
                 var_decl*   vars,
                 size_decl*  sizes,
                 rel_decl*   relations,
@@ -212,8 +214,8 @@ def _expr_str(e,prec=0):
              f"{s.rhs._expr_str(0)} in")
             for s in e.stmts ]
   stmts = "let " + ("\n    ".join(stmts))
-  s = f"{stmts}\n    {e.body._expr_str(0)}"
-  if prec > 0: s = f"({s})"
+  s = f"{stmts}\n    {e.ret._expr_str(0)}"
+  return f"({s})" if prec > 0 else s
 
 del _expr_str
 AST.expr.__str__ = lambda e: e._expr_str()
@@ -239,7 +241,7 @@ def _index_str(e,prec=0):
 @extclass(UST.IdxScale)
 @extclass(AST.IdxScale)
 def _index_str(e,prec=0):
-  s = f"{e.coeff} * {e.rhs._index_str(61)}"
+  s = f"{e.coeff} * {e.idx._index_str(61)}"
   return f"({s})" if prec > 60 else s
 
 del _index_str
@@ -284,10 +286,11 @@ def _function_str(f):
   rstr  = "rels     "+(', '.join([
       str(rd.name)+'('+(','.join([str(s) for s in rd.sizes]))+')'
       for rd in f.relations ]))
-  bstr  = f"return   {f.body}"
+  rtstr = f"rettype  {f.rettype}"
+  bstr  = f"return\n{f.body}"
   nmstr = "" if f.name is None else f.name
 
-  return f"function {nmstr}\n{sstr}\n{vstr}\n{rstr}\n{bstr}"
+  return f"function {nmstr}\n{sstr}\n{vstr}\n{rstr}\n{rtstr}\n{bstr}"
 del _function_str
 AST.function.__str__ = lambda f: f._function_str()
 UST.function.__str__ = lambda f: f._function_str()
@@ -406,7 +409,7 @@ class _TypeChecker:
         vs.append( AST.var_decl(V.sym, V.type, v.srcinfo) )
         arg_syms[arg_idx[str(v.name)]] = V.sym
       else:
-        self._err(f"variable name '{v.name}' already used")
+        self._err(v,f"variable name '{v.name}' already used")
     for sz in func.sizes:
       if ( self._ctxt.get(sz.name) is None and
            self._ctxt.get(str(sz.name)) is None ):
@@ -415,7 +418,7 @@ class _TypeChecker:
         szs.append( AST.size_decl( S.sym, sz.srcinfo ) )
         arg_syms[arg_idx[str(sz.name)]] = S.sym
       else:
-        self._err(f"size variable name '{nm}' already used")
+        self._err(sz,f"size variable name '{nm}' already used")
     for r in func.relations:
       if self._ctxt.get(r.name) is None:
         sizes   = [ self._get_range(r,s) for s in r.sizes ]
@@ -424,7 +427,7 @@ class _TypeChecker:
         rels.append( AST.rel_decl(R.sym, sizes, r.srcinfo) )
         arg_syms[arg_idx[str(r.name)]] = R.sym
       else:
-        self._err(f"relation name '{r.name}' already used")
+        self._err(r,f"relation name '{r.name}' already used")
     # if the header had name clashes, then early error exit
     # and don't even bother checking the body of the function
     self._report_errors()
@@ -433,10 +436,17 @@ class _TypeChecker:
     self._ctxt.push()
     body              = self.check(func.body)
     self._ctxt.pop()
+    rettype           = body.type
+    if func.rettype is not None:
+      if not body.type.matches(func.rettype):
+        self._err(body,f"expected function to return value of type "
+                       f"{func.rettype}, but got {body.type}")
+      rettype = func.rettype
 
     # finally, cache the typed AST on this pass object
     # and report errors encountered while type-checking the body
-    self._out_func    = AST.function(func.name, arg_syms, vs, szs, rels,
+    self._out_func    = AST.function(func.name, arg_syms, rettype,
+                                     vs, szs, rels,
                                      body, func.srcinfo)
     self._report_errors()
 
@@ -588,7 +598,8 @@ class _TypeChecker:
       elif nclass is UST.Sum:
         typ = body.type
       else: # nclass is IR.Gen
-        return T.Tensor(rng, body.type)
+        assert nclass is UST.Gen
+        typ = T.Tensor(rng, body.type)
       bigop = AST.Gen if nclass is UST.Gen else AST.Sum
       return bigop(I.sym, rng, body, typ, node.srcinfo)
     
@@ -628,7 +639,7 @@ class _TypeChecker:
                        f"match type annotation ({s.type})")
         V     = _Var(s.name,typ)
         self._ctxt.set(s.name,V)
-        stmts.append( AST.assign(V.name, V.type, rhs, s.srcinfo) )
+        stmts.append( AST.assign(V.sym, V.type, rhs, s.srcinfo) )
 
       # and then the return expression
       ret     = self.check(node.ret)

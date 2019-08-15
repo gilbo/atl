@@ -1,11 +1,13 @@
 
-from prelude import *
+from .prelude import *
 
-import atl_types as T
-from frontend import UST, AST
-from functions import Function
+from . import atl_types as T
+from .frontend import UST, AST
+from .functions import Function
 
-from py_type_values import *
+from .py_type_values import *
+
+from fractions import Fraction
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -21,6 +23,8 @@ class Var:
   # operator over-loading redirect to Expr
   def __add__(x,y):       return Expr(x).__add__(y,get_srcinfo(2))
   def __radd__(x,y):      return Expr(x).__radd__(y,get_srcinfo(2))
+  def __sub__(x,y):       return Expr(x).__sub__(y,get_srcinfo(2))
+  def __rsub__(x,y):      return Expr(x).__rsub__(y,get_srcinfo(2))
   def __mul__(x,y):       return Expr(x).__mul__(y,get_srcinfo(2))
   def __rmul__(x,y):      return Expr(x).__rmul__(y,get_srcinfo(2))
   def __getitem__(x,y):   return Expr(x).__getitem__(y,get_srcinfo(2))
@@ -36,6 +40,8 @@ class IVar:
   # operator over-loading redirect to IExpr
   def __add__(x,y):       return IExpr(x).__add__(y,get_srcinfo(2))
   def __radd__(x,y):      return IExpr(x).__radd__(y,get_srcinfo(2))
+  def __sub__(x,y):       return IExpr(x).__sub__(y,get_srcinfo(2))
+  def __rsub__(x,y):      return IExpr(x).__rsub__(y,get_srcinfo(2))
   def __mul__(x,y):       return IExpr(x).__mul__(y,get_srcinfo(2))
   def __rmul__(x,y):      return IExpr(x).__rmul__(y,get_srcinfo(2))
   def __lt__(x,y):        return IExpr(x).__lt__(y,get_srcinfo(2))
@@ -66,6 +72,8 @@ class Size:
   # operator over-loading redirect to IExpr
   def __add__(x,y):       return IExpr(x).__add__(y,get_srcinfo(2))
   def __radd__(x,y):      return IExpr(x).__radd__(y,get_srcinfo(2))
+  def __sub__(x,y):       return IExpr(x).__sub__(y,get_srcinfo(2))
+  def __rsub__(x,y):      return IExpr(x).__rsub__(y,get_srcinfo(2))
   def __mul__(x,y):       return IExpr(x).__mul__(y,get_srcinfo(2))
   def __rmul__(x,y):      return IExpr(x).__rmul__(y,get_srcinfo(2))
   def __lt__(x,y):        return IExpr(x).__lt__(y,get_srcinfo(2))
@@ -198,7 +206,7 @@ class _LetOpClass:
         else:
           raise TypeError(f"Expected argument {i} to be a Var")
       # odd argument...
-      body      = Expr(key[i+1])
+      body      = Expr(key[i+1])._ast
 
       stmts.append( UST.assign(name,typ,body,srcinfo) )
 
@@ -209,7 +217,7 @@ class _LetBlock:
     self._stmts = stmts
   def __call__(self,expr):
     srcinfo = get_srcinfo(2)
-    ret     = Expr(expr)
+    ret     = Expr(expr)._ast
     return Expr(UST.Let( self._stmts, ret, srcinfo ))
 
 Let = _LetOpClass()
@@ -229,8 +237,8 @@ class Expr:
     elif typ is tuple:
       if len(obj) < 1:
         raise TypeError("tuple expressions must have at least one entry")
-      args = [ a for a in obj ]
-      self._ast = Tuple(*args,get_srcinfo(2))
+      args = list(obj)
+      self._ast = Tuple(*args,srcinfo=get_srcinfo(2))._ast
     elif typ is Expr:
       self._ast = obj._ast
     elif isinstance(obj,UST.expr):
@@ -242,7 +250,15 @@ class Expr:
     return Expr( UST.Add(lhs._ast, Expr(rhs)._ast, srcinfo) )
   def __radd__(rhs,lhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
-    return __add__(Expr(lhs),rhs,srcinfo)
+    return Expr(lhs).__add__(rhs,srcinfo)
+
+  def __sub__(lhs,rhs,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    rhs_ast = UST.Mul( UST.Const(-1.,srcinfo), Expr(rhs)._ast, srcinfo )
+    return Expr( UST.Add(lhs._ast, rhs_ast, srcinfo) )
+  def __rsub__(rhs,lhs,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    return Expr(lhs).__sub__(rhs,srcinfo)
 
   def __mul__(lhs,rhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
@@ -252,7 +268,7 @@ class Expr:
       return Expr( UST.Mul(lhs._ast, Expr(rhs)._ast, srcinfo) )
   def __rmul__(rhs,lhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
-    return __mul__(Expr(lhs),rhs,srcinfo)
+    return Expr(lhs).__mul__(rhs,srcinfo)
 
   # Access
   def __getitem__(self,key,srcinfo=None):
@@ -289,7 +305,15 @@ class IExpr:
     return IExpr( UST.IdxAdd(lhs._ast, IExpr(rhs)._ast, srcinfo) )
   def __radd__(rhs,lhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
-    return __add__(Expr(lhs),rhs,srcinfo)
+    return IExpr(lhs).__add__(rhs,srcinfo)
+
+  def __sub__(lhs,rhs,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    rhs_ast = UST.IdxScale(Fraction(-1), IExpr(rhs)._ast, srcinfo)
+    return IExpr( UST.IdxAdd(lhs._ast, rhs_ast, srcinfo) )
+  def __rsub__(rhs,lhs,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    return IExpr(lhs).__sub__(rhs,srcinfo)
 
   def __mul__(lhs,rhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
@@ -299,7 +323,7 @@ class IExpr:
     return IExpr( UST.IdxScale(s, lhs._ast, srcinfo) )
   def __rmul__(rhs,lhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
-    return __mul__(rhs,lhs,srcinfo)
+    return rhs.__mul__(lhs,srcinfo)
 
   def __lt__(lhs,rhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
@@ -332,7 +356,7 @@ class Pred:
     return Expr( UST.Indicate(p._ast, Expr(e)._ast, srcinfo) )
   def __rmul__(p,e,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
-    return __mul__(p,e,srcinfo)
+    return p.__mul__(e,srcinfo)
 
   def conj(lhs,rhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
@@ -342,16 +366,21 @@ class Pred:
     return Pred( UST.Disj(lhs._ast,rhs._ast,srcinfo) )
 
 class _FunBuilderClass:
-  def __getitem__(self,key):  return _NamedFun(None).__getitem__(key)
-  def __call__(self,name):    return _NamedFun(name)
+  def __getitem__(self,key):
+    return _NamedFun(None,None).__getitem__(key)
+  def __call__(self,name,rettype=None):
+    return _NamedFun(name,rettype)
 
 Fun = _FunBuilderClass()
 
 class _NamedFun:
-  def __init__(self,name):
+  def __init__(self,name,rettype):
     if name is not None and not is_valid_name(name):
       raise TypeError("expected valid name for function")
+    if rettype is not None and not type(rettype) is Type:
+      raise TypeError("expected a return type after the function name")
     self._name    = name
+    self._rettype = None if rettype is None else rettype._type
     self._srcinfo = get_srcinfo(3)
 
   def __getitem__(self,key):
@@ -392,12 +421,14 @@ class _NamedFun:
       else:
         raise TypeError(f"argument name of unrecognized type {type(k.start)}")
 
-    return _SignedFun(self._name, arg_order, vs, szs, rels, self._srcinfo)
+    return _SignedFun(self._name, arg_order, self._rettype,
+                      vs, szs, rels, self._srcinfo)
 
 class _SignedFun:
-  def __init__(self, name, arg_order, vs, szs, rels, srcinfo):
+  def __init__(self, name, arg_order, rettype, vs, szs, rels, srcinfo):
     self._name      = name
     self._arg_order = arg_order
+    self._rettype   = rettype
     self._vars      = vs
     self._sizes     = szs
     self._relations = rels
@@ -406,6 +437,7 @@ class _SignedFun:
   def __call__(self,body):
     f = UST.function(name       = self._name,
                      arg_order  = self._arg_order,
+                     rettype    = self._rettype,
                      vars       = self._vars,
                      sizes      = self._sizes,
                      relations  = self._relations,
@@ -417,46 +449,3 @@ class _SignedFun:
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# some lightweight tests during development...
-
-if __name__ == '__main__':
-  def dot_ust():
-    x   = 'x'
-    y   = 'y'
-    i   = 'i'
-    n   = Sym('n')
-    NS  = null_srcinfo()
-
-    body = UST.Sum(i,n,
-              UST.Mul( UST.Access(UST.Var(x,NS),
-                                  [UST.IdxVar(i,NS)], NS),
-                       UST.Access(UST.Var(y,NS),
-                                  [UST.IdxVar(i,NS)], NS), NS ), NS)
-
-    f = UST.function( name  = 'dot',
-                      arg_order = ['n','x','y'],
-                      vars  = [UST.var_decl(x, T.Tensor(n,T.num), NS),
-                               UST.var_decl(y, T.Tensor(n,T.num), NS)],
-                      sizes = [UST.size_decl(n, NS)],
-                      relations = [],
-                      body  = body,
-                      srcinfo   = NS )
-
-    ast = f.typecheck()
-    print(str(ast))
-  dot_ust()
-
-  def dot_shorthand():
-    x, y  = Var('x'), Var('y')
-    i     = IVar('i')
-    n     = Size('n')
-    num   = Type(float)
-
-    f = Fun('dot')[ n, x : num[n], y : num[n] ](
-      Sum[i:n]( x[i] * ((i < n) * y[i+1]) )
-    )
-    print(f)
-
-  dot_shorthand()
-
-

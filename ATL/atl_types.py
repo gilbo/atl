@@ -1,9 +1,9 @@
 
 import sys
-from adt import ADT
-from adt import memo as ADTmemo
+from .adt import ADT
+from .adt import memo as ADTmemo
 
-from prelude import *
+from .prelude import *
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -21,7 +21,7 @@ module Types {
     'range':  lambda x: is_pos_int(x) or type(x) is Sym,
     'name':   is_valid_name,
 })
-ADTmemo(_Types,['Num','Error','Tuple','Tensor'],{
+ADTmemo(_Types,['Num','Error','Tuple','Tensor','labels'],{
   'range':  lambda x: x,
   'name':   lambda x: x,
 })
@@ -55,7 +55,7 @@ def __str__(t):
       rs    = []
       base  = t
       while type(base) is Tensor:
-        rs.append(t.range)
+        rs.append(base.range)
         base = base.type
       rngs = ",".join([ str(r) for r in rs ])
       t._str_cached = f"[{rngs}]{base}"
@@ -154,40 +154,5 @@ def SoA_transform(t,rngs=[]):
   else: assert False, "impossible type case"
 del SoA_transform
 
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Tests
-
-if __name__ == '__main__':
-  assert is_type(num)
-  assert is_type(error)
-  assert num == Num()
-  assert error == Error()
-
-  nn    = Tuple(None,[num,num])
-  vec3  = Tensor(3,num)
-  assert is_type(nn)
-  assert is_type(vec3)
-  assert nn == Tuple(None,[num,num])
-  assert vec3 == Tensor(3,num)
-
-  nn3   = Tensor(3,nn)
-  v3v3  = Tuple(None,[vec3,vec3])
-  assert nn.has_tuples()
-  assert not vec3.has_tuples()
-  assert nn3.has_tuples()
-  assert v3v3.has_tuples()
-
-  assert v3v3 == nn3.SoA_transform()
-  assert v3v3.matches(nn3.SoA_transform())
-
-  test    = Tuple(None,[num,vec3])
-  abtest  = Tuple(labels(['a','b']),[num,vec3])
-  assert test.matches(abtest)
-  cbtest  = Tuple(labels(['c','b']),[num,vec3])
-  assert not cbtest.matches(abtest)
-  assert cbtest.matches(test)
-
-

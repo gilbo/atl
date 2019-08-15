@@ -1,14 +1,14 @@
 
-from adt import ADT
-from adt import memo as ADTmemo
+from .adt import ADT
+from .adt import memo as ADTmemo
 
-from prelude import *
+from .prelude import *
 
-import atl_types as T
-from frontend import AST
+from . import atl_types as T
+from .frontend import AST
 
 from fractions import Fraction
-from fractions import gcd as _gcd
+from math import gcd as _gcd
 def _lcm(x,y):
   return (x*y)//_gcd(x,y)
 
@@ -171,13 +171,12 @@ class BoundsExtraction:
 
     elif eclass is AST.Tuple:
       sys   = BD.null
-      sys   = self.extract(e.ret)
       for a in e.args:
         s   = self.extract(a)
         if sys is BD.null:
-          sys = a
-        elif a is not BD.null:
-          sys = BD.Both( a, sys )
+          sys = s
+        elif s is not BD.null:
+          sys = BD.Both( s, sys )
       return sys
 
     elif eclass is AST.Proj:

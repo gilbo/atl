@@ -1,7 +1,7 @@
 
-from prelude import *
+from .prelude import *
 
-import atl_types as T
+from . import atl_types as T
 
 import numpy as np
 from collections import namedtuple
@@ -68,7 +68,7 @@ def argcheck_python_value(ctxt, typ, val, arg_id, is_output=False):
       raise TypeError(f"{pre} expected tuple size {len(typ.types)}, "
                       f"got {len(val)}")
     else:
-      for l,t,v) in zip(labels,typ.types,val):
+      for l,t,v in zip(labels,typ.types,val):
         argcheck_python_value(ctxt, t, v, f"{arg_id}.{l}",
                               is_output=is_output)
 

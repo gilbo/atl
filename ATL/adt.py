@@ -1,8 +1,8 @@
 """ A module for parsing ASDL grammars into Python Class hierarchies
 
-    See "How-to Represent IRs.ipynb" and "Memoization of IRs.ipynb".
-    These notebooks provide deeper documentation about the choices
-    made in the construction of this module.
+    For more information and commentary about the design of this
+    module, see the "How-to Represent IRs.ipynb" and
+    "Memoization of IRs.ipynb" notebooks.
 """
 
 import asdl
@@ -167,46 +167,50 @@ def ADT(asdl_str, ext_checks={}):
     given grammar.
 
     ASDL Syntax
-    -------
-    module      ::= "module" Id "{" [definitions] "}"
-    definitions ::= { TypeId "=" type }
-    type        ::= product | sum
-    product     ::= fields ["attributes" fields]
-    fields      ::= "(" { field, "," } field ")"
-    field       ::= TypeId ["?" | "*"] [Id]
-    sum         ::= constructor { "|" constructor } ["attributes" fields]
-    constructor ::= ConstructorId [fields]
+    =================
+    The grammar of ASDL follows this BNF::
+
+        module      ::= "module" Id "{" [definitions] "}"
+        definitions ::= { TypeId "=" type }
+        type        ::= product | sum
+        product     ::= fields ["attributes" fields]
+        fields      ::= "(" { field, "," } field ")"
+        field       ::= TypeId ["?" | "*"] [Id]
+        sum         ::= constructor { "|" constructor } ["attributes" fields]
+        constructor ::= ConstructorId [fields]
 
     Parameters
-    -------
+    =================
     asdl_str : str
         The ASDL definition string
     ext_checks : dict of functions, optional
         Type-checking functions for all external (undefined) types
         that are not "built-in".
         "built-in" types, and corresponding Python types are
-            'string'   str
-            'int'      int
-            'float'    float
-            'bool'     bool
-            'object'   (anything except None)
+        *   'string' - str
+        *   'int' - int
+        *   'float' - float
+        *   'bool' - bool
+        *   'object' - (anything except None)
 
     Returns
-    -------
+    =================
     module
-        The newly created module
+        A newly created module with classes for each ASDL type and constructor
 
     Example
-    -------
-    PolyMod = ADT(\"\"\" module PolyMod {
-        expr = Var   ( id    name  )
-             | Const ( float val   )
-             | Sum   ( expr* terms )
-             | Prod  ( float coeff, expr* terms )
-             attributes( string? tag )
-    }\"\"\", {
-        "id" : lambda x: type(x) is str and str.isalnum(),
-    })
+    =================
+    ::
+
+        PolyMod = ADT(\"\"\" module PolyMod {
+            expr = Var   ( id    name  )
+                 | Const ( float val   )
+                 | Sum   ( expr* terms )
+                 | Prod  ( float coeff, expr* terms )
+                 attributes( string? tag )
+        }\"\"\", {
+            "id" : lambda x: type(x) is str and str.isalnum(),
+        })
     """
     asdl_ast = _asdl_parse(asdl_str)
     mod      = _build_classes(asdl_ast,ext_checks)
@@ -293,7 +297,7 @@ def memo(mod, whitelist, ext_key={}):
     module.
 
     Parameters
-    -------
+    =================
     mod : ADT module
         Created by adt.ADT
     whitelist : list of strings
@@ -303,7 +307,7 @@ def memo(mod, whitelist, ext_key={}):
         memoization. "built-in" type key-functions are built-in.
 
     Returns
-    -------
+    =================
     Nothing
     """
     _add_memoization(mod,whitelist,ext_key)

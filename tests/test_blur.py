@@ -1,5 +1,6 @@
 
 import unittest
+from .function_tests import FunctionTestCase
 from ATL import *
 
 import numpy as np
@@ -7,9 +8,9 @@ import numpy as np
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
-class TestBlur(unittest.TestCase):
+class TestBlur(unittest.TestCase, FunctionTestCase):
 
-  def _gen_func(self):
+  def gen_func(self):
     num       = Type(float)
     w, h      = Size('w'), Size('h')
     i, j      = IVar('i'), IVar('j')
@@ -28,23 +29,13 @@ class TestBlur(unittest.TestCase):
     ]( blur_y ))
     return blur
 
-  def test_print_blur(self):
-    print( self._gen_func() )
-
-  def test_blur_zeros(self):
-    blur      = self._gen_func()
-
-    # a small checker pattern
+  def data_zeros(self):
     w, h      = 4, 4
-    img       = np.zeros([h,w])
-    predict   = np.zeros([h,w])
+    indata    = (w,h,np.zeros([h,w]))
+    outdata   = np.zeros([h,w])
+    return indata, outdata
 
-    comp      = blur(w,h,img)
-    np.testing.assert_allclose(comp, predict)
-
-  def test_blur_checker_2(self):
-    blur      = self._gen_func()
-
+  def data_checker_2(self):
     # a small checker pattern
     w, h      = 8, 6
     img       = np.zeros([h,w])
@@ -69,9 +60,8 @@ class TestBlur(unittest.TestCase):
           if val == 1.0:  pval += 1/16
           else:           pval += 0
         predict[j,i] = pval
+    return (w,h,img), predict
 
-    comp      = blur(w,h,img)
-    np.testing.assert_allclose(comp, predict)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

@@ -34,7 +34,7 @@ def get_python_named_tuple(typ):
     labels  = typ.labels
     if labels is None:
       labels = [ f"_{i}" for i,t in enumerate(typ.types) ]
-    _nm_tpl_cache = namedtuple('ATL_Tuple',labels)
+    _nm_tpl_cache[typ] = namedtuple('ATL_Tuple',labels,rename=True)
   return _nm_tpl_cache[typ]
 
 # --------------------------------------------------------------------------- #
@@ -150,7 +150,7 @@ def get_numpy_buffers(ctxt, typ):
   elif type(typ) is T.Tuple:
     args  = [ get_numpy_buffers(ctxt, t) for t in typ.types ]
     ctr   = get_python_named_tuple(typ)
-    return ctr(args)
+    return ctr(*args)
 
   elif type(typ) is T.Tensor:
     shape = typ.shape()

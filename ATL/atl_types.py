@@ -48,7 +48,7 @@ def __str__(t):
       if t.labels is None:
         entries = ','.join([ str(st) for st in t.types ])
       else:
-        entries = ','.join([ f"{nm}={t.types[i]}"
+        entries = ','.join([ f"{nm}={st}"
                              for nm,st in zip(t.labels.names,t.types) ])
       t._str_cached = f"({entries})"
     elif type(t) is Tensor:

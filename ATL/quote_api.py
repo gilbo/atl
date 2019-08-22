@@ -7,6 +7,8 @@ from .functions import Function
 
 from .py_type_values import *
 
+from . import builtins as B 
+
 from fractions import Fraction
 
 # --------------------------------------------------------------------------- #
@@ -59,7 +61,7 @@ class Relation:
   def __repr__(self):     return self._name
   def __call__(self,*args):
     srcinfo = get_srcinfo(2)
-    idx = [ IExpr(a) for a in args ]
+    idx = [ IExpr(a)._ast for a in args ]
     return Pred( UST.Relation(self._name, idx, srcinfo) )
 
 class Size:
@@ -114,7 +116,7 @@ class Type:
         labels.append(nm)
         typs.append(Type(typ)._type)
       self._type = T.Tuple(T.labels(labels),typs)
-    else: raise TypeError("not recognized as a type: {typ}")
+    else: raise TypeError(f"not recognized as a type: {typ}")
 
   def __getitem__(self,key):
     """ Tensor Type construction shorthand """
@@ -226,6 +228,29 @@ def Tuple(*args,srcinfo=None):
   srcinfo = srcinfo or get_srcinfo(2)
   return Expr(UST.Tuple([ Expr(a)._ast for a in args ], srcinfo))
 
+def Tensor(*args,srcinfo=None):
+  srcinfo = srcinfo or get_srcinfo(2)
+  return Expr(UST.TensorLit([ Expr(a)._ast for a in args ], srcinfo))
+
+class _BuiltIn:
+  def __init__(self,builtin):
+    assert isinstance(builtin, B.BuiltIn)
+    self._bfunc = builtin
+  def __call__(self,*args,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    return Expr(UST.BuiltIn(self._bfunc,
+                            [ Expr(a)._ast for a in args ],
+                            srcinfo))
+
+class ATLmath:
+  sin   = _BuiltIn(B.sin)
+  cos   = _BuiltIn(B.cos)
+  sqrt  = _BuiltIn(B.sqrt)
+  max   = _BuiltIn(B.fmax)
+#ATLmath = {}
+#ATLmath.sin   = _BuiltIn(B.sin)
+#ATLmath.cos   = _BuiltIn(B.cos)
+
 class Expr:
   """ Generic Expression """
   def __init__(self,obj):
@@ -239,6 +264,12 @@ class Expr:
         raise TypeError("tuple expressions must have at least one entry")
       args = list(obj)
       self._ast = Tuple(*args,srcinfo=get_srcinfo(2))._ast
+    elif typ is list:
+      if len(obj) < 1:
+        raise TypeError(f'list/tensor expressions '
+                        f'must have at least one entry')
+      args = list(obj)
+      self._ast = Tensor(*args,srcinfo=get_srcinfo(2))._ast
     elif typ is Expr:
       self._ast = obj._ast
     elif isinstance(obj,UST.expr):
@@ -377,8 +408,8 @@ class _NamedFun:
   def __init__(self,name,rettype):
     if name is not None and not is_valid_name(name):
       raise TypeError("expected valid name for function")
-    if rettype is not None and not type(rettype) is Type:
-      raise TypeError("expected a return type after the function name")
+    if rettype is not None:
+      rettype = Type(rettype)
     self._name    = name
     self._rettype = None if rettype is None else rettype._type
     self._srcinfo = get_srcinfo(3)

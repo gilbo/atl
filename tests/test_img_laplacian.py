@@ -1,5 +1,6 @@
 
 import unittest
+from .function_tests import FunctionTestCase
 from ATL import *
 
 import numpy as np
@@ -7,7 +8,7 @@ import numpy as np
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
-class TestImgLaplacian(unittest.TestCase):
+class TestImgLaplacian(unittest.TestCase, FunctionTestCase):
 
   def gen_func(self):
     num       = Type(float)
@@ -32,37 +33,28 @@ class TestImgLaplacian(unittest.TestCase):
   #   dy[j,i] = (j+1 < h) * ( f[j+1,i] - f[j,i] )
   #   return Sum[j,i]( dx[j,i]**2 + dy[j,i]**2 )
 
-  def test_print_img_laplacian(self):
-    print(self.gen_func())
-
-  def test_laplacian_zeros(self):
-    laplacian = self.gen_func()
-
-    # a small checker pattern
+  def data_zeros(self):
     w, h      = 4, 4
     img       = np.zeros([h,w])
     predict   = 0.0
+    return (w,h,img), predict
 
-    comp      = laplacian(w,h,img)
-    self.assertAlmostEqual(comp, predict)
-
-
-  def test_laplacian_checker_2(self):
-    laplacian = self.gen_func()
-
+  def data_checker_2(self):
     # a small checker pattern
     w, h      = 8, 6
     img       = np.zeros([h,w])
     predict   = float( 3*6 + 8*2 )
+    
     for i in range(0,w):
       for j in range(0,h):
         imod  = (i//2) % 2
         jmod  = (j//2) % 2
         val   = 1.0 if imod == jmod else 0.0
         img[j,i] = val
-    
-    comp      = laplacian(w,h,img)
-    self.assertAlmostEqual(comp, predict)
+
+    return (w,h,img), predict
+
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

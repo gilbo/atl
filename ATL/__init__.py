@@ -1,4 +1,6 @@
 
+""" ATL - A Tensor Library """
+
 from .quote_api import (
   Function,
   Var,
@@ -14,6 +16,7 @@ from .quote_api import (
   IExpr,
   Pred,
   Fun,
+  ATLmath,
 )
 
 __all__ = [
@@ -31,4 +34,5 @@ __all__ = [
   "IExpr",
   "Pred",
   "Fun",
+  "ATLmath",
 ]

@@ -182,6 +182,16 @@ class BoundsExtraction:
     elif eclass is AST.Proj:
       return self.extract(e.arg)
 
+    elif eclass is AST.TensorLit:
+      sys   = BD.null
+      for a in e.args:
+        s   = self.extract(a)
+        if sys is BD.null:
+          sys = s
+        elif s is not BD.null:
+          sys = BD.Both( s, sys )
+      return sys
+
     elif eclass is AST.Gen or eclass is AST.Sum:
       # a sanity check; maybe not necessary, but if true
       # this greatly simplifies naming issues, so let's assert for now
@@ -209,6 +219,17 @@ class BoundsExtraction:
         lo_chk  = (i >= 0)
         hi_chk  = (i < rng)
         sys     = BD.Check( BD.Conj(lo_chk, hi_chk), sys, e.srcinfo )
+      return sys
+
+    elif eclass is AST.BuiltIn:
+      # the built-in itself has no effect
+      sys   = BD.null
+      for a in e.args:
+        s   = self.extract(a)
+        if sys is BD.null:
+          sys = s
+        elif s is not BD.null:
+          sys = BD.Both( s, sys )
       return sys
 
     elif eclass is AST.Indicate:
@@ -267,11 +288,11 @@ class BoundsExtraction:
     elif pclass is AST.Relation:
       sizes         = self._get_rel_sizes(p.name)
       args, checks  = [], []
-      for k,i_arg in enumerate(p.args):
+      for k,(i_arg,N) in enumerate(zip(p.args,sizes)):
         i       = self.index(i_arg)
-        v       = Sym(str(p.name)+k)
+        v       = Sym(f"{p.name}{k}")
         def_eq  = i.eq(v)
-        bd_chk  = BD.Conj( i >= 0, i < sizes[k] )
+        bd_chk  = BD.Conj( i >= 0, i < N )
         args.append(v)
         checks.append( (v,def_eq,bd_chk,i_arg.srcinfo) )
       return BD.Rel(p.name, args), checks

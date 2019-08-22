@@ -10,7 +10,7 @@ Welcome to ATL's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   ATL
+   modules
 
 
 Indices and tables

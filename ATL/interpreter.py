@@ -125,6 +125,8 @@ class _Interpreter:
       return tuple( self._exec(a) for a in e.args )
     elif eclass is AST.Proj:
       return ( self._exec(e.arg) )[e.idx]
+    elif eclass is AST.TensorLit:
+      return [ self._exec(a) for a in e.args ]
     elif eclass is AST.Gen:
       N       = self._get_range(e.range)
       result  = []
@@ -149,6 +151,9 @@ class _Interpreter:
         i = math.floor( self._exec(ie) )
         base  = base[i]
       return base
+    elif eclass is AST.BuiltIn:
+      args    = [ self._exec(a) for a in e.args ]
+      return e.f.interpret(*args)
     elif eclass is AST.Indicate:
       guard   = self._exec(e.pred)
       if not guard:

@@ -10,27 +10,32 @@ import numpy as np
 from .py_type_values import *
 
 from .interpreter import Interpret
+from .norm_ast    import LetLift, TupleElimination
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
 class Function:
-  def __init__(self,f):
-    assert type(f) is UST.function, "do not construct this class directly!"
+  def __init__(self, f, _do_bound_check=True):
+    if ( type(f) is not UST.function and
+         type(f) is not AST.function ):
+      raise TypeError("do not construct Function objects directly!")
 
     # complain about reserved names
     for nm in f.arg_order:
-      if nm == 'output':
+      if str(nm) == 'output':
         raise TypeError(f"The argument name 'output' is reserved, "
                         f"and may not be declared by the user")
 
     # perform simple type checking and convert to a typed AST
-    self._orig_f    = f
-    self._ast       = f.typecheck()
+    if type(f) is UST.function:
+      f             = f.typecheck()
+    self._ast       = f
 
     # perform a bounds check on function construction
-    bd_sys          = BoundsExtraction(self._ast).system()
-    BoundsCheck(bd_sys)
+    if _do_bound_check:
+      bd_sys          = BoundsExtraction(self._ast).system()
+      BoundsCheck(bd_sys)
 
   def __str__(self):
     return str(self._ast)
@@ -99,7 +104,8 @@ class Function:
       return output[0]
     elif type(typ) is T.Tuple:
       ctr = get_python_named_tuple(typ)
-      return ctr(tuple( self._pack_return_scalars(o) for o in output ))
+      return ctr(*[ self._pack_return_scalars(t,o)
+                    for t,o in zip(typ.types, output) ])
     elif type(typ) is T.Tensor:
       return output
 
@@ -111,8 +117,16 @@ class Function:
   def __call__(self, *args, **kwargs):
     return self.interpret(*args,**kwargs)
 
+  def _TEST_BoundCheck(self):
+    bd_sys          = BoundsExtraction(self._ast).system()
+    BoundsCheck(bd_sys)
 
+  def _TEST_LetLift(self):
+    ast             = LetLift(self._ast).normalized()
+    return Function(ast, _do_bound_check=False)
 
-
+  def _TEST_TupleElimination(self):
+    ast             = TupleElimination(self._ast).normalized()
+    return Function(ast, _do_bound_check=False)
 
 

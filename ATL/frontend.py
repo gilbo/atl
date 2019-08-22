@@ -7,6 +7,8 @@ from .prelude import *
 
 from . import atl_types as T
 
+from . import builtins as B 
+
 from fractions import Fraction
 
 # --------------------------------------------------------------------------- #
@@ -42,11 +44,13 @@ module Untyped_AST {
        | Mul      ( expr lhs, expr rhs )
        | Tuple    ( expr* args )
        | Proj     ( plabel idx, expr arg )
+       | TensorLit( expr* args )
        | Gen      ( name name, range range, expr body )
        | Sum      ( name name, range range, expr body )
-       | Access   ( expr    base,  index* idx )
+       | Access   ( expr base, index* idx )
+       | BuiltIn  ( builtin f, expr* args )
        -- implied multiplication of the bracket with body
-       | Indicate ( pred    pred,  expr body )
+       | Indicate ( pred pred, expr body  )
        -- important to express sharing of computation results
        | Let      ( assign* stmts, expr ret )
        attributes( srcinfo srcinfo )
@@ -72,6 +76,7 @@ module Untyped_AST {
   'type':     T.is_type,
   'range':    lambda x: is_pos_int(x) or (type(x) is Sym),
   'fraction': lambda x: type(x) is Fraction,
+  'builtin':  lambda x: isinstance(x, B.BuiltIn),
   'pred_op':  lambda x: x in pred_ops,
   'plabel':   lambda x: x is int or is_valid_name(x),
   'srcinfo':  lambda x: type(x) is SrcInfo,
@@ -99,11 +104,13 @@ module AST {
        | Mul      ( expr lhs, expr rhs )
        | Tuple    ( expr* args )
        | Proj     ( plabel idx, expr arg )
+       | TensorLit( expr* args )
        | Gen      ( sym name, range range, expr body )
        | Sum      ( sym name, range range, expr body )
-       | Access   ( expr    base,  index* idx )
+       | Access   ( expr base, index* idx )
+       | BuiltIn  ( builtin f, expr* args )
        -- implied multiplication of the bracket with body
-       | Indicate ( pred    pred,  expr body )
+       | Indicate ( pred pred, expr body  )
        -- important to express sharing of computation results
        | Let      ( assign* stmts, expr ret )
        attributes( type type, srcinfo srcinfo )
@@ -129,6 +136,7 @@ module AST {
   'type':     T.is_type,
   'range':    lambda x: is_pos_int(x) or (type(x) is Sym),
   'fraction': lambda x: type(x) is Fraction,
+  'builtin':  lambda x: isinstance(x, B.BuiltIn),
   'pred_op':  lambda x: x in pred_ops,
   'plabel':   lambda x: x is int,
   'srcinfo':  lambda x: type(x) is SrcInfo,
@@ -185,6 +193,11 @@ def _expr_str(e,prec=0):
 @extclass(AST.Proj)
 def _expr_str(e,prec=0):
   return f"({e.arg._expr_str(70)}.{e.idx})"
+@extclass(UST.TensorLit)
+@extclass(AST.TensorLit)
+def _expr_str(e,prec=0):
+  args = ",".join([ a._expr_str(0) for a in e.args ])
+  return f"{{{args}}}"
 @extclass(UST.Gen)
 @extclass(UST.Sum)
 @extclass(AST.Gen)
@@ -198,6 +211,12 @@ def _expr_str(e,prec=0):
 def _expr_str(e,prec=0):
   idx = ",".join([ str(i) for i in e.idx ])
   s = f"{e.base._expr_str(80)}[{idx}]"
+  return f"({s})" if prec > 80 else s
+@extclass(UST.BuiltIn)
+@extclass(AST.BuiltIn)
+def _expr_str(e,prec=0):
+  args = ",".join([ str(a) for a in e.args ])
+  s = f"{e.f.name()}({args})"
   return f"({s})" if prec > 80 else s
 @extclass(UST.Indicate)
 @extclass(AST.Indicate)
@@ -260,7 +279,7 @@ def _pred_str(p,prec=0):
 @extclass(AST.Relation)
 def _pred_str(p,prec=0):
   args = ",".join([ str(i) for i in p.args ])
-  s = f"{str(p.name)}[{idx}]"
+  s = f"{str(p.name)}({args})"
   return f"({s})" if prec > 80 else s
 @extclass(UST.Conj)
 @extclass(UST.Disj)
@@ -351,7 +370,7 @@ class TCError(Exception):
   def __init__(self, errs):
     errmsg = ("errors during typechecking:\n" +
               ('\n'.join(errs)))
-    super(TCError, self).__init__(errmsg)
+    super().__init__(errmsg)
 
 class _Var:
   """ Helper object for TypeChecker pass """
@@ -463,8 +482,7 @@ class _TypeChecker:
     """ Check for and raise accumulated type-checking errors
         together, if any were found """
     if len(self._errors) > 0:
-      raise TCError('Found errors during typechecking:\n  '+
-                    '\n  '.join(self._errors))
+      raise TCError(self._errors)
   
   def _get_var(self, node, name):
     """ Retrieve a variable and error if a non-variable was found """
@@ -583,6 +601,19 @@ class _TypeChecker:
             self._err(node, f"could not find tuple entry label '{idx}'")
             idx = 0
       return AST.Proj(idx, arg, typ, node.srcinfo)
+
+    elif nclass is UST.TensorLit:
+      args    = [ self.check(a) for a in node.args ]
+      typ     = args[0].type
+      for i,a in enumerate(args):
+        if typ is not T.error and a.type is not T.error:
+          if typ != a.type:
+            self._err(node, f"expected all entries to have the same "
+                            f"type ({typ}), but argument {i} had type "
+                            f"{a.type}")
+      if typ is not T.error:
+        typ = T.Tensor(len(args), typ)
+      return AST.TensorLit( args, typ, node.srcinfo )
     
     elif nclass is UST.Gen or nclass is UST.Sum:
       self._ctxt.push()
@@ -621,6 +652,17 @@ class _TypeChecker:
             typ = typ.type
         # `typ` should now have the resulting type after len(idx) indexings
       return AST.Access(base, idx, typ, node.srcinfo)
+
+    elif nclass is UST.BuiltIn:
+      args    = [ self.check(i) for i in node.args ]
+      atyps   = [ a.type for a in args ]
+      typ     = T.error
+      try:
+        typ   = node.f.typecheck(*atyps)
+      except B.BuiltIn_Typecheck_Error as be:
+        self._err(node, str(be))
+        typ   = T.error
+      return AST.BuiltIn(node.f, args, typ, node.srcinfo)
     
     elif nclass is UST.Indicate:
       pred    = self.check(node.pred)

@@ -1,13 +1,15 @@
 
-from adt import ADT
-from adt import memo as ADTmemo
-from prelude import *
+from .adt import ADT
+from .adt import memo as ADTmemo
+
+from .prelude import *
 import numpy as np
 import ctypes
-from halide import halide_type_t, halide_buffer_t, halide_dimension_t
-from halide import hw_expr_t, hw_var_t, hw_rdom_t
-from halide import hw_func_t, hw_img_t, hw_param_t
-from halide import C
+
+from .halide import halide_type_t, halide_buffer_t, halide_dimension_t
+from .halide import hw_expr_t, hw_var_t, hw_rdom_t
+from .halide import hw_func_t, hw_img_t, hw_param_t
+from .halide import C
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

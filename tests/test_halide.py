@@ -27,6 +27,7 @@ class TestHalideWrapper(unittest.TestCase):
         return out_buf, arr
 
     def test_run_tut1(self):
+        print()
         gradient = C.hwrap_new_func(b"gradient")
         x        = C.hwrap_new_var(b"x")
         y        = C.hwrap_new_var(b"y")
@@ -141,7 +142,7 @@ class TestHalideWrapper(unittest.TestCase):
         fEst(blur_y,1,i32E(1),i32E(H-2))
 
         if use_auto:
-            print("Using auto-scheduler...")
+            print("Using auto-scheduler")
             C.hwrap_autoschedule_func(blur_y)
         
         # run tests
@@ -156,9 +157,11 @@ class TestHalideWrapper(unittest.TestCase):
         print('blur times', t1-t0,t2-t1,t3-t2)
 
     def test_blur_0(self):
+        print()
         self.blur_test_0()
     
     def test_blur_0_autoschedule(self):
+        print()
         self.blur_test_0(True)
 
 

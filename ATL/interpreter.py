@@ -94,10 +94,10 @@ class _Interpreter:
     if typ is T.num:
       return 0
     elif type(typ) is T.Tuple:
-      return tuple( _make_zero(t) for t in typ.types )
+      return tuple( self._make_zero(t) for t in typ.types )
     elif type(typ) is T.Tensor:
       N     = self._get_range(typ.shape()[0])
-      return [ _make_zero(typ.type) for _ in range(0,N) ]
+      return [ self._make_zero(typ.type) for _ in range(0,N) ]
     else: assert False, "impossible case"
 
   def _get_val(self,nm):
@@ -116,11 +116,14 @@ class _Interpreter:
       return self._get_val(e.name)
     elif eclass is AST.Const:
       return e.val
-    elif eclass is AST.Add:
-      return self._Add_shapes( e.lhs.type, self._exec(e.lhs),
-                                           self._exec(e.rhs) )
-    elif eclass is AST.Mul:
-      return self._exec(e.lhs) * self._exec(e.rhs)
+    elif eclass is AST.BinOp:
+      lval    = self._exec(e.lhs)
+      rval    = self._exec(e.rhs)
+      if e.op == '+':
+        return self._Add_shapes( e.lhs.type, lval, rval )
+      elif e.op == '-': return lval - rval
+      elif e.op == '*': return lval * rval
+      elif e.op == '/': return lval / rval
     elif eclass is AST.Tuple:
       return tuple( self._exec(a) for a in e.args )
     elif eclass is AST.Proj:

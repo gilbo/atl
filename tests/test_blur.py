@@ -15,7 +15,6 @@ class TestBlur(unittest.TestCase, FunctionTestCase):
     w, h      = Size('w'), Size('h')
     i, j      = IVar('i'), IVar('j')
     img       = Var('img')
-    #bd_img    = Var('bd_img')
     blur_x    = Var('blur_x')
     blur_y    = Var('blur_y')
 
@@ -28,6 +27,47 @@ class TestBlur(unittest.TestCase, FunctionTestCase):
                                   + (j+1 < h)*blur_x[j+1,i] ) ),
     ]( blur_y ))
     return blur
+
+  def gen_deriv_sig(self):
+    return { 'img' : 'dimg' }
+
+  def gen_deriv(self):
+    num       = Type(float)
+    w, h      = Size('w'), Size('h')
+    i, j      = IVar('i'), IVar('j')
+    img       = Var('img')
+    blur_x    = Var('blur_x')
+    blur_y    = Var('blur_y')
+    dimg      = Var('dimg')
+    dblur_x   = Var('dblur_x')
+    dblur_y   = Var('dblur_y')
+
+    blur = Fun('dblur')[ w, h, img : num[h,w],
+                              dimg : num[h,w] ]( Let[
+      blur_x, Gen[j:h,i:w]( 0.25*( (i-1 >= 0)*img[j,i-1]
+                                  +         2*img[j,i  ]
+                                  + (i+1 < w)*img[j,i+1] ) ),
+      dblur_x, Gen[j:h,i:w]( 0.25*( (i-1 >= 0)*dimg[j,i-1]
+                                   +         2*dimg[j,i  ]
+                                   + (i+1 < w)*dimg[j,i+1] ) ),
+      blur_y, Gen[j:h,i:w]( 0.25*( (j-1 >= 0)*blur_x[j-1,i]
+                                  +         2*blur_x[j  ,i]
+                                  + (j+1 < h)*blur_x[j+1,i] ) ),
+      dblur_y, Gen[j:h,i:w]( 0.25*( (j-1 >= 0)*dblur_x[j-1,i]
+                                   +         2*dblur_x[j  ,i]
+                                   + (j+1 < h)*dblur_x[j+1,i] ) ),
+    ]( (blur_y, dblur_y) ))
+    return blur
+    
+  def rand_input(self):
+    w, h      = self.rand.randint(10,20), self.rand.randint(10,20)
+    img       = self.rand.rand_ndarray([h,w])
+    return (w,h,img)
+
+  def rand_deriv_input(self):
+    w, h, img = self.rand_input()
+    dimg      = self.rand.rand_ndarray([h,w])
+    return (w,h,img,dimg)
 
   def data_zeros(self):
     w, h      = 4, 4

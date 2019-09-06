@@ -79,10 +79,10 @@ class LetLift:
     if   eclass is AST.Var or eclass is AST.Const:
       return [],e
 
-    elif eclass is AST.Add or eclass is AST.Mul:
+    elif eclass is AST.BinOp:
       lbind, lhs    = self.lift(e.lhs)
       rbind, rhs    = self.lift(e.rhs)
-      return lbind + rbind, eclass(lhs, rhs, e.type, e.srcinfo)
+      return lbind + rbind, AST.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
     elif eclass is AST.Tuple or eclass is AST.TensorLit:
       stmts, args   = self.lift_exprs(e.args)
@@ -149,7 +149,11 @@ class LetLift:
     elif eclass is AST.Indicate:
       pred          = self.lift_pred(e.pred)
       stmts, body   = self.lift(e.body)
-      return stmts, AST.Indicate(pred, body, e.type, e.srcinfo)
+      wrap_stmts    = []
+      for s in stmts:
+        rhs         = AST.Indicate(pred, s.rhs, s.type, s.srcinfo)
+        wrap_stmts.append(AST.assign( s.name, s.type, rhs, s.srcinfo ))
+      return wrap_stmts, AST.Indicate(pred, body, e.type, e.srcinfo)
 
     elif eclass is AST.Let:
       stmts         = []
@@ -200,10 +204,10 @@ class LetLift:
     elif eclass is AST.Const or eclass is AST.IdxConst:
       return e
 
-    elif eclass is AST.Add or eclass is AST.Mul:
+    elif eclass is AST.BinOp:
       lhs   = self.subst(env, e.lhs)
       rhs   = self.subst(env, e.rhs)
-      return eclass(lhs, rhs, e.type, e.srcinfo)
+      return AST.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
     elif eclass is AST.Tuple or eclass is AST.TensorLit:
       args  = [ self.subst(env, a) for a in e.args ]
@@ -346,9 +350,8 @@ class TupleElimination:
 
     Returns
     ==============
-    [ AST.assign ], AST.expr
-        a list of statements and a return expression to build a new
-        top level Let-block from
+    AST.expr
+        the expression with projections applied, pushed down and pairs lifted
 
     """
     eclass = type(e)
@@ -379,16 +382,16 @@ class TupleElimination:
       assert len(projstk) == 0
       return e
 
-    elif eclass is AST.Add or eclass is AST.Mul:
-      # additions may be between any two equivalent types
-      # multiplications only between scalars
-      if eclass is AST.Mul: assert len(projstk) == 0
+    elif eclass is AST.BinOp:
+      # additions may be between any two equivalent types,
+      # but otherwise the types must be scalars
+      if e.op != '+': assert len(projstk) == 0
       lhs           = self.elim(e.lhs, projstk.copy())
       rhs           = self.elim(e.rhs, projstk)
 
       # we must assume that the projstk may have changed the type
       # of this expression
-      return eclass(lhs, rhs, lhs.type, e.srcinfo)
+      return AST.BinOp(e.op, lhs, rhs, lhs.type, e.srcinfo)
 
     elif eclass is AST.Tuple:
       # whenever we encounter a tuple, we ought to have a
@@ -424,12 +427,6 @@ class TupleElimination:
       self._ctxt.pop()
 
       # Patch up the type of the result
-      #print("GEN/SUM: "+str(eclass))
-      #print("  ",projstk)
-      #print("  ",e)
-      #print("  ",e.body.type)
-      #print("  ",body.type, e.range)
-      #print("end GEN/SUM")
       typ           = body.type
       if eclass is AST.Gen: typ = T.Tensor(e.range, typ)
       return eclass(i, e.range, body, typ, e.srcinfo)
@@ -454,11 +451,6 @@ class TupleElimination:
     elif eclass is AST.Indicate:
       pred          = self.elim_pred(e.pred)
       body          = self.elim(e.body, projstk)
-      #print("IND: ")
-      #print("  ",projstk)
-      #print("  ",e)
-      #print("  ",body.type)
-      #print("end IND")
       return AST.Indicate(pred, body, body.type, e.srcinfo)
 
     elif eclass is AST.Let:
@@ -575,8 +567,13 @@ class TupleElimination:
 # --------------------------------------------------------------------------- #
 
 
-class IndexAndGen:
-  """ Pass to raise all Let-bindings to a top-level block
+class IndexDownGenUp:
+  """ Pass to normalize tensor generation and indexing
+
+      Assumes that Let Lifting and Tuple Elimination have been run.
+      This pass will move all tensor Generators to the outermost position
+      of the right-hand sides of assignments, and will move all Accesses
+      to the innermost position, directly wrapping variables.
 
       Call ``normalized()`` to get result
 
@@ -588,7 +585,24 @@ class IndexAndGen:
   """
   def __init__(self, ast):
 
-    self._ctxt = Context()
+    self._ctxt  = Context()
+
+    if type(ast.body) is AST.Let:
+      stmts     = []
+      for s in ast.body.stmts:
+        gens, r = self.downup(s.rhs)
+        rhs     = self.wrap_gens(gens, r)
+        stmts.append( AST.assign(s.name, rhs.type, rhs, s.srcinfo) )
+      gens, e   = self.downup(ast.body.ret)
+      ret       = self.wrap_gens(gens, e)
+      body      = AST.Let(stmts, ret, ret.type, ast.body.srcinfo)
+    else:
+      gens, e   = self.downup(ast.body.ret)
+      body      = self.wrap_gens(gens, e)
+
+    self._ast   = AST.function( ast.name, ast.arg_order, ast.rettype,
+                                ast.vars, ast.sizes, ast.relations,
+                                body, ast.srcinfo )
 
   def _get_var(self, name):
     return self._ctxt.get(name)
@@ -596,8 +610,23 @@ class IndexAndGen:
     self._ctxt.set(name, subst)
     return subst
 
+  def wrap_gens(self, gens, e):
+    for i,rng in reversed(gens):
+      typ       = T.Tensor(rng, e.type)
+      e         = AST.Gen(i,rng,e,typ,e.srcinfo)
+    return e
+  def wrap_access(self, e, idxstk):
+    if len(idxstk) > 0:
+      typ = e.type
+      for _ in idxstk:
+        typ = typ.type
+      return AST.Access( e, idxstk.copy(), typ, e.srcinfo )
+    else:
+      return e
+
   def normalized(self):
-    """ Get the result of lifting; computed on pass construction.
+    """
+    Get the result of lifting; computed on pass construction.
 
     Returns
     ==============
@@ -605,11 +634,11 @@ class IndexAndGen:
     """
     return self._ast
 
-  def lift(self, e):
+  def downup(self, e, idxstk=[]):
     """
-    Lifts an expression.  If ``[[e]]`` means lift e, then
+    normalizes an expression.  If ``[[e]]`` means downup e, then
 
-    ``[[e]] ==> let <return stmts> in <return expr>``
+    ``[[e]][<idxstk>] ==> <Gen bindings> <expr>``
 
     is an equational representation of this function's signature.
     The rules for individual cases may be deduced from that formulation.
@@ -617,205 +646,177 @@ class IndexAndGen:
     Parameters
     ==============
     e : AST.expr
-      expression to lift
+      expression to normalize
+    idxstk : [ AST.index ]
+      list of expressions to index by; unlike projstk,
+      index with entry [0] first
 
     Returns
     ==============
-    [ AST.assign ], AST.expr
-        a list of statements and a return expression to build a new
-        top level Let-block from
+    [ (Sym, range) ], AST.expr
+        a list of Gen bindings and an expression to build a final
+        expression from.  Bindings are applied with the last first/innermost
 
     """
     eclass = type(e)
+    assert eclass is not AST.Let, "nested Lets should be eliminated"
     if   eclass is AST.Var:
-      sub = self._ctxt.get(e.name)
-
-      # this substitution may need to be subjected
-      # to further flattening itself.  However, if the
-      # substitution did nothing, then stop recursing
-      if ( type(sub) is AST.Var and
-           sub.name == e.name and
-           sub.type == e.type ):
-        assert len(projstk) == 0
-        return [], e
-      else:
-        return sub.flatten(sub, projstk)
+      return [], self.wrap_access( e, idxstk.copy() )
 
     elif eclass is AST.Const:
-      assert len(projstk) == 0
+      assert len(idxstk) == 0
       return [], e
 
-    elif eclass is AST.Add or eclass is AST.Mul:
-      # additions may be between any two equivalent types
-      # multiplications only between scalars
-      if eclass is AST.Mul: assert len(projstk) == 0
-      lbind, lhs    = self.flatten(e.lhs, projstk.copy())
-      rbind, rhs    = self.flatten(e.rhs, projstk)
+    elif eclass is AST.BinOp:
+      if e.op != '+': assert len(idxstk) == 0
+      # effective tensor dimension...
+      eff_dim   = ( 0 if type(e.type) is not T.Tensor
+                      else len(e.type.shape()) - len(idxstk) )
+      assert eff_dim >= 0
 
-      # we must assume that the projstk may have changed the type
-      # of this expression
-      return lbind + rbind, eclass(lhs, rhs, lhs.type, e.srcinfo)
+      # the simplest case is that this is effectively a scalar op
+      if eff_dim == 0:
+        lgen, lhs     = self.downup(e.lhs, idxstk.copy())
+        rgen, rhs     = self.downup(e.rhs, idxstk)
+        assert len(lgen) == 0
+        assert len(rgen) == 0
+        return [], AST.BinOp(e.op, lhs, rhs, lhs.type, e.srcinfo)
+
+      # the more complex case is addition, handling Gen bindings
+      else:
+        lgen, lhs     = self.downup(e.lhs, idxstk.copy())
+        # construct indexing corresponding to lgen
+        for i,rng in lgen:
+          idxstk.insert(0, AST.IdxVar(i, null_srcinfo()))
+        # and then process the right-hand side with these additional
+        # indexings to ensure that no generators are returned.
+        # Doing this accomplishes substitution for the new merged
+        # generator variables in lgen
+        rgen, rhs     = self.downup(e.rhs, idxstk)
+        assert len(rgen) == 0
+        return lgen, AST.BinOp('+', lhs, rhs, lhs.type, e.srcinfo)
 
     elif eclass is AST.Tuple:
-      # whenever we encounter a tuple, we ought to have a
-      # projection to eliminate it with on hand.
-      assert len(projstk) > 0
-      proj_i        = projstk.pop()
-      return self.flatten(e.args[proj_i], projstk)
+      assert len(idxstk) == 0, "tuples should be on the outside"
+      args            = []
+      typs            = []
+      for a in e.args:
+        gens, ea      = self.downup(a)
+        ea            = self.wrap_gens(gens, ea)
+        args.append( ea )
+        typs.append( ea.type )
+      typ = T.Tuple( e.type.labels, typs )
+      return [], AST.Tuple( args, typ, e.srcinfo )
 
     elif eclass is AST.Proj:
-      # accumulate projections at the end of the stack
-      # these accumulated projections get preference as we apply
-      projstk.append(e.idx)
-      return self.flatten(e.arg, projstk)
+      gens, arg       = self.downup(e.arg)
+      assert len(gens) == 0, "projections should be on the inside"
+      return [], self.wrap_access( AST.Proj( e.idx, arg, e.type ), idxstk )
 
     elif eclass is AST.TensorLit:
-      # projections are copied into each expression of the
-      # tensor literal, and all let blocks are accumulated
-      # on the way back out.
-      stmts         = []
-      args          = []
-      for a in e.args:
-        binds, arg  = self.flatten(a, projstk.copy())
-        stmts      += binds
-        args.append(arg)
+      # Sometimes literals will compose scalar expressions.  In that
+      # special case, let's preserve the Tensor Literal structure
+      if len(idxstk) == 0 and e.args[0].type is T.num:
+        args          = []
+        for a in e.args:
+          gens, arg   = self.downup(a)
+          assert len(gens) == 0
+          args.append(arg)
+        return [], AST.TensorLit( args, e.type, e.srcinfo )
 
-      # The type of the result may be different due to
-      # projections eliminating tuples in the type
-      typ           = T.Tensor(len(args), args[0].type)
-      return stmts, AST.TensorLit(args, typ, e.srcinfo)
-
-    elif eclass is AST.Gen or eclass is AST.Sum:
-      # index variable name
-      i     = e.name
-      i_rng = e.range
-
-      # process the body
-      stmts, body   = self.flatten(e.body, projstk)
-
-      # the returning let-statement-block needs to be transformed
-      # according to the enclosing Gen or Sum.
-      #   e.g. Gen(i, let x = e0  => let x = Gen(i, e0)
-      #                    in e1)         in Gen(i, e1.sub( x -> x[i] ))
-      # In order to make the pass easier to write, but not necessarily
-      # efficient, we'll go ahead and eagerly substitute down the entire
-      # block of let-statements to take care of this pattern immediately
-      sub_ctxt      = Context()
-      new_stmts     = [ None for s in stmts ]
-      for s in stmts:
-        # let binding variable name
-        x = s.name
-
-        # make a copy of the index variable for this statement
-        # and substitute with it and all preceding variables
-        sub_i       = i.copy() # index variable name
-        sub_ctxt.set(i, sub_i)
-        rhs         = self.subst(sub_ctxt, s.rhs)
-        tenstyp     = T.Tensor( i_rng, rhs.type )
-        new_rhs     = AST.Gen( sub_i, i_rng, rhs, tenstyp, rhs.srcinfo )
-
-        # now that we have a new rhs, we can build up a new assignment
-        new_s       = AST.assign( x, new_rhs.type, new_rhs, s.srcinfo )
-        new_stmts.append(new_s)
-        # and set up the variable for further substitution
-        sub_ctxt.set( x, (x,i) )
-
-      # finally, do substitution on the body
-      sub_i         = i.copy()
-      sub_ctxt.set(i, sub_i)
-      body          = self.subst(sub_ctxt, body)
-      bodytyp       = body.type
-      if eclass is AST.Gen: bodytyp = T.Tensor( i_rng, bodytyp )
-      new_body      = eclass(sub_i, i_rng, body, bodytyp, e.srcinfo)
-
-      return new_stmts, new_body
-
-    elif eclass is AST.Access:
-      pass
-
-
-  def subst(self, env, e):
-    """
-    perform substitutions from ``env`` in ``e`` eagerly.
-
-    Parameters
-    ==============
-    env : Context
-      substitutions to perform
-    e : AST.expr
-      expression to substitute inside of
-
-    Returns
-    ==============
-    AST.expr
-      The fully substituted expression
-    """
-    eclass = type(e)
-    assert eclass is not AST.Tuple, "tuples should be eliminated"
-    assert eclass is not AST.Proj,  "projections should be eliminated"
-    assert eclass is not AST.Let,   "should not be substituting on lets"
-    if eclass is AST.Var:
-      sub = env.get(e.name)
-      if sub is None: return e
+      # otherwise, we'll expand the tensor literal using the identity
+      #   { e0, e1 }  ==>  Gen[i:2] [i=0]*e0 + [i=1]*e1
+      # and then re-direct into the other cases to handle
       else:
-        idx = env.get(sub[1])
-        acc = AST.Access( e, [AST.IdxVar(idx,e.srcinfo)], e.type, e.srcinfo )
-        return acc
+        gen_i         = Sym('_i')
+        rng           = len(e.args)
+        body          = None
+        for i,a in enumerate(e.args):
+          pred        = AST.Cmp('==', AST.IdxVar(gen_i, a.srcinfo),
+                                      AST.IdxConst(i, a.srcinfo),
+                                      a.srcinfo)
+          term        = AST.Indicate( pred, a, a.type, a.srcinfo )
+          if body is None:
+            body      = term
+          else:
+            body      = AST.BinOp( '+', body, term, term.type, e.srcinfo )
+        # wrap in a Gen to complete
+        node          = AST.Gen( gen_i, rng, body,
+                                 T.Tensor(rng, body.type), e.srcinfo )
+        return self.downup(node, idxstk)
 
-    elif eclass is AST.Const or eclass is AST.IdxConst:
-      return e
+    elif eclass is AST.Gen:
+      if len(idxstk) > 0:
+        # then eliminate this generator using the expression to index with
+        idx_expr      = idxstk.pop(0)
+        self._set_var(e.name, idx_expr)
+        return self.downup( e.body, idxstk )
+      else:
+        # otherwise, just process and return back up with an additional
+        # generator on the return stack
+        self._set_var( e.name, AST.IdxVar(e.name,null_srcinfo()) )
+        gens, body    = self.downup(e.body)
+        gens.insert(0, (e.name,e.range) )
+        return gens, body
 
-    elif eclass is AST.Add or eclass is AST.Mul:
-      lhs   = self.subst(env, e.lhs)
-      rhs   = self.subst(env, e.rhs)
-      return eclass(lhs, rhs, e.type, e.srcinfo)
-
-    elif eclass is AST.TensorLit:
-      args  = [ self.subst(env, a) for a in e.args ]
-      return AST.TensorLit( args, e.type, e.srcinfo )
-
-    elif eclass is AST.Gen or eclass is AST.Sum:
-      assert env.get(e.name) is None, "expected safe symbol distinctions"
-      body  = self.subst(env, e.body)
-      return eclass( e.name, e.range, body, e.type, e.srcinfo )
+    elif eclass is AST.Sum:
+      self._set_var( e.name, AST.IdxVar(e.name,null_srcinfo()) )
+      gens, body      = self.downup(e.body, idxstk)
+      body            = AST.Sum(e.name, e.range, body, body.type, e.srcinfo)
+      return gens, body
 
     elif eclass is AST.Access:
-      base  = self.subst(env, e.base)
-      idx   = [ self.subst(env, i) for i in e.idx ]
-      return AST.Access( base, idx, e.type, e.srcinfo )
+      idx             = [ self.downup_index(i) for i in e.idx ]
+      return self.downup(e.base, idx + idxstk)
 
     elif eclass is AST.BuiltIn:
-      args  = [ self.subst(env, a) for a in e.args ]
-      return AST.BuiltIn( e.f, args, e.type, e.srcinfo )
+      assert len(idxstk) == 0, "did not expect built-ins to return tensors"
+      args            = []
+      for a in e.args:
+        assert a.type == T.num, "builtin had non-scalar arguments"
+        gens, arg     = self.downup(a)
+        assert len(gens) == 0
+        args.append(arg)
+      return [], AST.BuiltIn(e.f, args, e.type, e.srcinfo)
 
     elif eclass is AST.Indicate:
-      pred  = self.subst(env, e.pred)
-      body  = self.subst(env, e.body)
-      return AST.Indicate( pred, body, e.type, e.srcinfo )
+      pred            = self.downup_pred(e.pred)
+      gens, body      = self.downup(e.body, idxstk)
+      return gens, AST.Indicate(pred, body, body.type, e.srcinfo)
 
-    elif eclass is AST.IdxVar or eclass is AST.IdxSize:
-      new_i = env.get(e.name)
-      return e if new_i is None else eclass( new_i, e.srcinfo )
+  def downup_index(self, i):
+    """ See ``downup()`` """
+    iclass = type(i)
+    if   iclass is AST.IdxConst or iclass is AST.IdxSize:
+      return i
+    elif iclass is AST.IdxVar:
+      idx             = self._get_var(i.name)
+      assert isinstance(idx, AST.index)
+      if type(idx) is AST.IdxVar and idx.name == i.name:
+        idx           = AST.IdxVar( i.name, i.srcinfo )
+      return idx
+    elif iclass is AST.IdxAdd:
+      lhs             = self.downup_index(i.lhs)
+      rhs             = self.downup_index(i.rhs)
+      return AST.IdxAdd( lhs, rhs, i.srcinfo )
+    elif iclass is AST.IdxScale:
+      idx             = self.downup_index(i.idx)
+      return AST.IdxScale( i.coeff, idx, i.srcinfo )
 
-    elif eclass is AST.IdxScale:
-      idx   = self.subst(env, e.idx)
-      return AST.IdxScale( e.coeff, idx, e.srcinfo )
-
-    elif eclass is AST.Cmp:
-      lhs   = self.subst(env, e.lhs)
-      rhs   = self.subst(env, e.rhs)
-      return AST.Cmp( e.op, lhs, rhs, e.srcinfo )
-
-    elif eclass is AST.Relation:
-      args  = [ self.subst(env, a) for a in e.args ]
-      return AST.BuiltIn( e.name, args, e.srcinfo )
-
-    elif eclass is AST.IdxAdd or eclass is AST.Conj or eclass is AST.Disj:
-      lhs   = self.subst(env, e.lhs)
-      rhs   = self.subst(env, e.rhs)
-      return eclass(lhs, rhs, e.srcinfo)
-
-
+  def downup_pred(self, p):
+    """ See ``downup()`` """
+    pclass = type(p)
+    if   pclass is AST.Cmp:
+      lhs             = self.downup_index(p.lhs)
+      rhs             = self.downup_index(p.rhs)
+      return AST.Cmp( p.op, lhs, rhs, p.srcinfo )
+    elif pclass is AST.Relation:
+      args            = [ self.downup_index(a) for a in p.args ]
+      return AST.Relation( p.name, args, p.srcinfo )
+    elif pclass is AST.Conj or pclass is AST.Disj:
+      lhs             = self.downup_pred(p.lhs)
+      rhs             = self.downup_pred(p.rhs)
+      return eclass( lhs, rhs, p.srcinfo )
 
 
 # --------------------------------------------------------------------------- #

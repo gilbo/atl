@@ -49,6 +49,10 @@ class Context:
       if nm in e:
         return e[nm]
     return None
+  def items(self):
+    for e in self._envs:
+      for nm,val in e.items():
+        yield nm,val
 
 # from a github gist by victorlei
 def extclass(cls):

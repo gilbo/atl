@@ -31,9 +31,10 @@ def get_python_named_tuple(typ):
   if type(typ) is not T.Tuple:
     raise TypeError("expected a Tuple-type")
   if typ not in _nm_tpl_cache:
-    labels  = typ.labels
-    if labels is None:
+    if typ.labels is None:
       labels = [ f"_{i}" for i,t in enumerate(typ.types) ]
+    else:
+      labels  = typ.labels.names
     _nm_tpl_cache[typ] = namedtuple('ATL_Tuple',labels,rename=True)
   return _nm_tpl_cache[typ]
 
@@ -109,7 +110,9 @@ def argcheck_python_size(ctxt, val, arg_id):
 
 def argcheck_python_relation(ctxt, sizes, val, arg_id):
   pre = f"Bad Argument - {arg_id}:"
-  if val.dtype != bool:
+  if type(val) is not np.ndarray:
+    raise TypeError(f"{pre} expected numpy.ndarray")
+  elif val.dtype != bool:
     raise TypeError(f"{pre} expected numpy.ndarray of 8-bit bools")
   assert val.itemsize == 1, 'bools should be 1 byte'
 

@@ -162,7 +162,7 @@ class BoundsExtraction:
     if   eclass is AST.Var or eclass is AST.Const:
       return BD.null
 
-    elif eclass is AST.Add or eclass is AST.Mul:
+    elif eclass is AST.BinOp:
       lhs = self.extract(e.lhs)
       rhs = self.extract(e.rhs)
       if   lhs is BD.null: return rhs
@@ -273,7 +273,7 @@ class BoundsExtraction:
     else: assert False, "unexpected case"
 
   # returns a second "checks" list of type
-  #     [(var_name, var_eq, var_bd_chk, srcinfo)]
+  #     [(var_name, var_eq, var_bd_chk, err_msg, srcinfo)]
   def pred(self, p):
     pclass  = type(p)
     if   pclass is AST.Cmp:
@@ -297,7 +297,7 @@ class BoundsExtraction:
         checks.append( (v,def_eq,bd_chk,i_arg.srcinfo) )
       return BD.Rel(p.name, args), checks
 
-    elif pclass is AST.Conj or pclass is AST.Conj:
+    elif pclass is AST.Conj or pclass is AST.Disj:
       lhs, lchk   = self.pred(p.lhs)
       rhs, rchk   = self.pred(p.rhs)
       lchk.extend(rchk)
@@ -337,6 +337,20 @@ class BoundsCheck:
   def _err(self, node, msg):
     self._errors.append((node.srcinfo, msg))
 
+  def _get_solution(self, pred):
+    smt_syms  = [ smt_sym for nm,smt_sym in self._ctxt.items()
+                          if smt_sym.get_type() == SMT.INT ]
+    self._slv.push()
+    self._slv.add_assertion(pred)
+    val_map = self._slv.get_py_values(smt_syms)
+    self._slv.pop()
+    mapping   = []
+    for nm,smt_sym in self._ctxt.items():
+      if smt_sym.get_type() == SMT.INT:
+        mapping.append(f"  {nm} = {val_map[smt_sym]}")
+    return "\n".join(mapping)
+
+
   def check(self, sys):
     styp = type(sys)
     if   styp is BD.VarIntro:
@@ -367,10 +381,11 @@ class BoundsCheck:
       self.check(sys.rhs)
 
     elif styp is BD.Check:
-      pred    = self.formula(sys.pred)
-      success = self._slv.is_valid(pred)
-      if not success:
-        self._err(sys, "Out of Bounds Access")
+      pred    = SMT.Not( self.formula(sys.pred) )
+      failure = self._slv.is_sat(pred)
+      if failure:
+        mapping = self._get_solution(pred)
+        self._err(sys, f"Out of Bounds Access:\n{mapping}")
       # continue regardless
       self.check(sys.cont)
 

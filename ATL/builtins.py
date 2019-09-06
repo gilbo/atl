@@ -2,7 +2,7 @@
 from .prelude import *
 
 from . import atl_types as T
-#from .frontend import UST, AST
+from . import frontend as F
 
 #import numpy as np
 
@@ -25,7 +25,7 @@ _BErr = BuiltIn_Typecheck_Error
 
 class BuiltIn:
   def __init__(self,name):
-    self._name = name
+    self._name  = name
 
   def name(self):
     return self._name
@@ -33,83 +33,110 @@ class BuiltIn:
   def typecheck(self,*args):
     raise NotImplementedError()
 
+  def deriv(self,*args):
+    raise NotImplementedError()
+
   def interpret(self,*args):
     raise NotImplementedError()
 
 
-
-
-class _Sin(BuiltIn):
-  def __init__(self):
-    super().__init__('sin')
+class ScalarBI(BuiltIn):
+  def __init__(self,name,n_ary):
+    self._n_ary = n_ary
+    super().__init__(name)
 
   def typecheck(self,*args):
-    if len(args) != 1:
-      raise _BErr(f"expected 1 argument, got {len(args)}")
-    if args[0] is T.error:
-      return T.error
-    elif args[0] is not T.num:
-      raise _BErr(f"expected an argument of type Num, got {args[0]}")
+    if len(args) != self._n_ary:
+      raise _BErr(f"expected {self._n_ary} argument(s), got {len(args)}")
+    result = T.error
+    for k,a in enumerate(args):
+      if a is T.error:
+        pass
+      elif a is not T.num:
+        raise _BErr(f"expected argument {k} to have type Num, got {a}")
     return T.num
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+class _Sin(ScalarBI):
+  def __init__(self):
+    super().__init__('sin',1)
+
+  def deriv( self, x, dx, srcinfo=null_srcinfo() ):
+    cos_x       = F.AST.BuiltIn(cos, [x], T.num, srcinfo)
+    return F.AST.BinOp( '*', cos_x, dx, T.num, srcinfo )
 
   def interpret(self,x):
     return math.sin(x)
 sin = _Sin()
 
-class _Cos(BuiltIn):
+class _Cos(ScalarBI):
   def __init__(self):
-    super().__init__('cos')
+    super().__init__('cos',1)
 
-  def typecheck(self,*args):
-    if len(args) != 1:
-      raise _BErr(f"expected 1 argument, got {len(args)}")
-    if args[0] is T.error:
-      return T.error
-    elif args[0] is not T.num:
-      raise _BErr(f"expected an argument of type Num, "
-                  f"got {args[0]}")
-    return T.num
+  def deriv( self, x, dx, srcinfo=null_srcinfo() ):
+    neg_sin_x   = F.AST.BinOp( '*', F.AST.Const(-1.0, T.num, srcinfo),
+                                    F.AST.BuiltIn(sin, [x], T.num, srcinfo),
+                                    T.num, srcinfo )
+    return F.AST.BinOp( '*', neg_sin_x, dx, T.num, srcinfo )
 
   def interpret(self,x):
     return math.cos(x)
 cos = _Cos()
 
-class _Sqrt(BuiltIn):
+class _Sqrt(ScalarBI):
   def __init__(self):
-    super().__init__('sqrt')
+    super().__init__('sqrt',1)
 
-  def typecheck(self,*args):
-    if len(args) != 1:
-      raise _BErr(f"expected 1 argument, got {len(args)}")
-    if args[0] is T.error:
-      return T.error
-    elif args[0] is not T.num:
-      raise _BErr(f"expected an argument of type Num, "
-                  f"got {args[0]}")
-    return T.num
+  def deriv( self, x, dx, srcinfo=null_srcinfo() ):
+    return F.AST.BinOp( '/',
+                        F.AST.BinOp( '*', F.AST.Const(0.5, T.num, srcinfo),
+                                          dx, T.num, srcinfo ),
+                        F.AST.BuiltIn(sqrt, [x], T.num, srcinfo),
+                        T.num, srcinfo )
 
   def interpret(self,x):
     return math.sqrt(x)
 sqrt = _Sqrt()
 
-class _Max(BuiltIn):
+class _Select_GT(ScalarBI):
   def __init__(self):
-    super().__init__('max')
+    super().__init__('select_gt',4)
 
-  def typecheck(self,*args):
-    if len(args) != 2:
-      raise _BErr(f"expected 2 arguments, got {len(args)}")
-    for i,a in enumerate(args):
-      if a is not T.error and a is not T.num:
-        raise _BErr(f"expected argument {i} to have type Num, got {a}")
-    if args[0] is T.error or args[1] is T.error:
-      return T.error
-    else:
-      return T.num
+  def deriv( self, x, y, a, b, dx, dy, da, db, srcinfo=null_srcinfo() ):
+    return F.AST.BuiltIn( select_gt, [x, y, da, db], T.num, srcinfo )
+
+  def interpret(self,x,y,a,b):
+    return a if x > y else b
+select_gt = _Select_GT()
+
+class _Max(ScalarBI):
+  def __init__(self):
+    super().__init__('max',2)
+
+  def deriv( self, a, b, da, db, srcinfo=null_srcinfo() ):
+    return F.AST.BuiltIn( select_gt, [a, b, da, db], T.num, srcinfo )
 
   def interpret(self,a,b):
     return max(a,b)
 fmax = _Max()
+
+class _Min(ScalarBI):
+  def __init__(self):
+    super().__init__('min',2)
+
+  def deriv( self, a, b, da, db, srcinfo=null_srcinfo() ):
+    neg_a   = F.AST.BinOp( '*', F.AST.Const(-1.0, T.num, srcinfo),
+                                a, T.num, srcinfo )
+    neg_b   = F.AST.BinOp( '*', F.AST.Const(-1.0, T.num, srcinfo),
+                                b, T.num, srcinfo )
+    return F.AST.BuiltIn( select_gt, [neg_a, neg_b, da, db], T.num, srcinfo )
+
+  def interpret(self,a,b):
+    return min(a,b)
+fmin = _Min()
 
 
 

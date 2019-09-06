@@ -23,14 +23,17 @@ class Var:
   def __str__(self):      return self._name
   def __repr__(self):     return self._name
   # operator over-loading redirect to Expr
+  def __neg__(x):         return Expr(x).__neg__(get_srcinfo(2))
   def __add__(x,y):       return Expr(x).__add__(y,get_srcinfo(2))
   def __radd__(x,y):      return Expr(x).__radd__(y,get_srcinfo(2))
   def __sub__(x,y):       return Expr(x).__sub__(y,get_srcinfo(2))
   def __rsub__(x,y):      return Expr(x).__rsub__(y,get_srcinfo(2))
   def __mul__(x,y):       return Expr(x).__mul__(y,get_srcinfo(2))
   def __rmul__(x,y):      return Expr(x).__rmul__(y,get_srcinfo(2))
+  def __truediv__(x,y):   return Expr(x).__div__(y,get_srcinfo(2))
+  def __rtruediv__(x,y):  return Expr(x).__rdiv__(y,get_srcinfo(2))
   def __getitem__(x,y):   return Expr(x).__getitem__(y,get_srcinfo(2))
-  def proj(x,i):          return Expr(x).proj(get_srcinfo(2))
+  def proj(x,i):          return Expr(x).proj(i,get_srcinfo(2))
 
 class IVar:
   """ Use this class to represent index variables """
@@ -243,10 +246,12 @@ class _BuiltIn:
                             srcinfo))
 
 class ATLmath:
-  sin   = _BuiltIn(B.sin)
-  cos   = _BuiltIn(B.cos)
-  sqrt  = _BuiltIn(B.sqrt)
-  max   = _BuiltIn(B.fmax)
+  sin         = _BuiltIn(B.sin)
+  cos         = _BuiltIn(B.cos)
+  sqrt        = _BuiltIn(B.sqrt)
+  select_gt   = _BuiltIn(B.select_gt)
+  max         = _BuiltIn(B.fmax)
+  min         = _BuiltIn(B.fmin)
 #ATLmath = {}
 #ATLmath.sin   = _BuiltIn(B.sin)
 #ATLmath.cos   = _BuiltIn(B.cos)
@@ -276,17 +281,20 @@ class Expr:
       self._ast = obj
     else: raise TypeError(f"unexpected argument type: {typ}")
 
+  def __neg__(x,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    return Expr( UST.BinOp('*', UST.Const(-1.0,srcinfo), x._ast, srcinfo) )
+
   def __add__(lhs,rhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
-    return Expr( UST.Add(lhs._ast, Expr(rhs)._ast, srcinfo) )
+    return Expr( UST.BinOp('+', lhs._ast, Expr(rhs)._ast, srcinfo) )
   def __radd__(rhs,lhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
     return Expr(lhs).__add__(rhs,srcinfo)
 
   def __sub__(lhs,rhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
-    rhs_ast = UST.Mul( UST.Const(-1.,srcinfo), Expr(rhs)._ast, srcinfo )
-    return Expr( UST.Add(lhs._ast, rhs_ast, srcinfo) )
+    return Expr( UST.BinOp('-', lhs._ast, Expr(rhs)._ast, srcinfo) )
   def __rsub__(rhs,lhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
     return Expr(lhs).__sub__(rhs,srcinfo)
@@ -296,10 +304,17 @@ class Expr:
     if isinstance(rhs,Pred):
       return rhs * lhs
     else:
-      return Expr( UST.Mul(lhs._ast, Expr(rhs)._ast, srcinfo) )
+      return Expr( UST.BinOp('*', lhs._ast, Expr(rhs)._ast, srcinfo) )
   def __rmul__(rhs,lhs,srcinfo=None):
     srcinfo = srcinfo or get_srcinfo(2)
     return Expr(lhs).__mul__(rhs,srcinfo)
+
+  def __truediv__(lhs,rhs,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    return Expr( UST.BinOp('/', lhs._ast, Expr(rhs)._ast, srcinfo) )
+  def __rtruediv__(rhs,lhs,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
+    return Expr( UST.BinOp('/', Expr(lhs)._ast, rhs._ast, srcinfo) )
 
   # Access
   def __getitem__(self,key,srcinfo=None):

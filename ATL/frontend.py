@@ -23,6 +23,13 @@ pred_ops = {
   "==":   True,
 }
 
+bin_ops = {
+  "+":    True,
+  "-":    True,
+  "*":    True,
+  "/":    True,
+}
+
 UST = ADT("""
 module Untyped_AST {
   function  = ( name?       name,
@@ -40,8 +47,7 @@ module Untyped_AST {
 
   expr = Var      ( name  name )
        | Const    ( float val  )
-       | Add      ( expr lhs, expr rhs )
-       | Mul      ( expr lhs, expr rhs )
+       | BinOp    ( bin_op op, expr lhs, expr rhs )
        | Tuple    ( expr* args )
        | Proj     ( plabel idx, expr arg )
        | TensorLit( expr* args )
@@ -78,7 +84,8 @@ module Untyped_AST {
   'fraction': lambda x: type(x) is Fraction,
   'builtin':  lambda x: isinstance(x, B.BuiltIn),
   'pred_op':  lambda x: x in pred_ops,
-  'plabel':   lambda x: x is int or is_valid_name(x),
+  'bin_op':   lambda x: x in bin_ops,
+  'plabel':   lambda x: type(x) is int or is_valid_name(x),
   'srcinfo':  lambda x: type(x) is SrcInfo,
 })
 
@@ -100,8 +107,7 @@ module AST {
 
   expr = Var      ( sym   name )
        | Const    ( float val  )
-       | Add      ( expr lhs, expr rhs )
-       | Mul      ( expr lhs, expr rhs )
+       | BinOp    ( bin_op op, expr lhs, expr rhs )
        | Tuple    ( expr* args )
        | Proj     ( plabel idx, expr arg )
        | TensorLit( expr* args )
@@ -138,7 +144,8 @@ module AST {
   'fraction': lambda x: type(x) is Fraction,
   'builtin':  lambda x: isinstance(x, B.BuiltIn),
   'pred_op':  lambda x: x in pred_ops,
-  'plabel':   lambda x: x is int,
+  'bin_op':   lambda x: x in bin_ops,
+  'plabel':   lambda x: type(x) is int,
   'srcinfo':  lambda x: type(x) is SrcInfo,
 })
 
@@ -168,72 +175,76 @@ _AST_op_prec = {
 
 @extclass(UST.Var)
 @extclass(AST.Var)
-def _expr_str(e,prec=0):
+def _expr_str(e,prec=0,ind=''):
   return str(e.name)
 @extclass(UST.Const)
 @extclass(AST.Const)
-def _expr_str(e,prec=0):
+def _expr_str(e,prec=0,ind=''):
   return str(e.val)
-@extclass(UST.Add)
-@extclass(AST.Add)
-def _expr_str(e,prec=0):
-  s = f"{e.lhs._expr_str(50)} + {e.rhs._expr_str(51)}"
-  return f"({s})" if prec > 50 else s
-@extclass(UST.Mul)
-@extclass(AST.Mul)
-def _expr_str(e,prec=0):
-  s = f"{e.lhs._expr_str(60)} * {e.rhs._expr_str(61)}"
-  return f"({s})" if prec > 60 else s
+@extclass(UST.BinOp)
+@extclass(AST.BinOp)
+def _expr_str(e,prec=0,ind=''):
+  op_prec = _AST_op_prec[e.op]
+  s = (f"{e.lhs._expr_str(op_prec,ind)} {e.op} "
+       f"{e.rhs._expr_str(op_prec+1,ind)}")
+  return f"({s})" if prec > op_prec else s
 @extclass(UST.Tuple)
 @extclass(AST.Tuple)
-def _expr_str(e,prec=0):
-  args = ",".join([ a._expr_str(0) for a in e.args ])
+def _expr_str(e,prec=0,ind=''):
+  args = ",".join([ a._expr_str(0,ind) for a in e.args ])
   return f"({args})"
 @extclass(UST.Proj)
 @extclass(AST.Proj)
-def _expr_str(e,prec=0):
-  return f"({e.arg._expr_str(70)}.{e.idx})"
+def _expr_str(e,prec=0,ind=''):
+  return f"({e.arg._expr_str(70,ind)}.{e.idx})"
 @extclass(UST.TensorLit)
 @extclass(AST.TensorLit)
-def _expr_str(e,prec=0):
-  args = ",".join([ a._expr_str(0) for a in e.args ])
-  return f"{{{args}}}"
+def _expr_str(e,prec=0,ind=''):
+  args = ",".join([ a._expr_str(0,ind) for a in e.args ])
+  return f"[{args}]"
 @extclass(UST.Gen)
 @extclass(UST.Sum)
 @extclass(AST.Gen)
 @extclass(AST.Sum)
-def _expr_str(e,prec=0):
+def _expr_str(e,prec=0,ind=''):
   op = "Sum" if (type(e) is AST.Sum or type(e) is UST.Sum) else "Gen"
-  s = f"{op}[{str(e.name)}:{e.range}] {e.body._expr_str(10)}"
+  s = f"{op}[{str(e.name)}:{e.range}] {e.body._expr_str(10,ind)}"
   return f"({s})" if prec > 10 else s
 @extclass(UST.Access)
 @extclass(AST.Access)
-def _expr_str(e,prec=0):
-  idx = ",".join([ str(i) for i in e.idx ])
-  s = f"{e.base._expr_str(80)}[{idx}]"
+def _expr_str(e,prec=0,ind=''):
+  idx = ",".join([ i._index_str(0,ind) for i in e.idx ])
+  s = f"{e.base._expr_str(80,ind)}[{idx}]"
   return f"({s})" if prec > 80 else s
 @extclass(UST.BuiltIn)
 @extclass(AST.BuiltIn)
-def _expr_str(e,prec=0):
-  args = ",".join([ str(a) for a in e.args ])
+def _expr_str(e,prec=0,ind=''):
+  args = ",".join([ a._expr_str(0,ind) for a in e.args ])
   s = f"{e.f.name()}({args})"
   return f"({s})" if prec > 80 else s
 @extclass(UST.Indicate)
 @extclass(AST.Indicate)
-def _expr_str(e,prec=0):
-  s = f"[{e.pred}]*{e.body._expr_str(61)}"
+def _expr_str(e,prec=0,ind=''):
+  s = f"[{e.pred}]*{e.body._expr_str(61,ind)}"
   return f"({s})" if prec > 60 else s
 @extclass(UST.Let)
 @extclass(AST.Let)
-def _expr_str(e,prec=0):
+def _expr_str(e,prec=0,ind=''):
   # note that this is ill-behaved formatting
   # for lets nested inside of expressions
-  stmts = [ (f"{str(s.name)}"
-             f"{'' if s.type is None else ' : '+str(s.type)} = "
-             f"{s.rhs._expr_str(0)} in")
-            for s in e.stmts ]
-  stmts = "let " + ("\n    ".join(stmts))
-  s = f"{stmts}\n    {e.ret._expr_str(0)}"
+  subind = ind + "    "
+  decls  = [ (f"{str(s.name)}"
+              f"{'' if s.type is None else ' : '+str(s.type)}")
+             for s in e.stmts ]
+  # compute alignment...
+  max_len = 0
+  for d in decls:
+    max_len = max(max_len, len(d))
+  stmts = [ (f"{d}{(max_len-len(d))*' '} = "
+             f"{s.rhs._expr_str(0,subind)} in")
+            for s,d in zip(e.stmts,decls) ]
+  stmts = f"let \n{subind}" + (f"\n{subind}".join(stmts))
+  s = f"{stmts}\n{subind}{max_len*' '} {e.ret._expr_str(0,subind)}"
   return f"({s})" if prec > 0 else s
 
 del _expr_str
@@ -244,23 +255,23 @@ UST.expr.__str__ = lambda e: e._expr_str()
 
 @extclass(UST.IdxConst)
 @extclass(AST.IdxConst)
-def _index_str(e,prec=0):
+def _index_str(e,prec=0,ind=''):
   return str(e.val)
 @extclass(UST.IdxVar)
 @extclass(UST.IdxSize)
 @extclass(AST.IdxVar)
 @extclass(AST.IdxSize)
-def _index_str(e,prec=0):
+def _index_str(e,prec=0,ind=''):
   return str(e.name)
 @extclass(UST.IdxAdd)
 @extclass(AST.IdxAdd)
-def _index_str(e,prec=0):
-  s = f"{e.lhs._index_str(50)} + {e.rhs._index_str(51)}"
+def _index_str(e,prec=0,ind=''):
+  s = f"{e.lhs._index_str(50,ind)} + {e.rhs._index_str(51,ind)}"
   return f"({s})" if prec > 50 else s
 @extclass(UST.IdxScale)
 @extclass(AST.IdxScale)
-def _index_str(e,prec=0):
-  s = f"{e.coeff} * {e.idx._index_str(61)}"
+def _index_str(e,prec=0,ind=''):
+  s = f"{e.coeff} * {e.idx._index_str(61,ind)}"
   return f"({s})" if prec > 60 else s
 
 del _index_str
@@ -271,24 +282,26 @@ UST.index.__str__ = lambda e: e._index_str()
 
 @extclass(UST.Cmp)
 @extclass(AST.Cmp)
-def _pred_str(p,prec=0):
+def _pred_str(p,prec=0,ind=''):
   op_prec = _AST_op_prec[p.op]
-  s = f"{p.lhs._index_str(op_prec)} {p.op} {p.rhs._index_str(op_prec+1)}"
+  s = (f"{p.lhs._index_str(op_prec,ind)} {p.op} "
+       f"{p.rhs._index_str(op_prec+1,ind)}")
   return f"({s})" if prec > op_prec else s
 @extclass(UST.Relation)
 @extclass(AST.Relation)
-def _pred_str(p,prec=0):
-  args = ",".join([ str(i) for i in p.args ])
+def _pred_str(p,prec=0,ind=''):
+  args = ",".join([ i._index_str(0,ind) for i in p.args ])
   s = f"{str(p.name)}({args})"
   return f"({s})" if prec > 80 else s
 @extclass(UST.Conj)
 @extclass(UST.Disj)
 @extclass(AST.Conj)
 @extclass(AST.Disj)
-def _pred_str(p,prec=0):
+def _pred_str(p,prec=0,ind=''):
   op = "and" if pclass is AST.Conj else "or"
   op_prec = _AST_op_prec[p.op]
-  s = f"{e.lhs._pred_str(op_prec)} {p.op} {e.rhs._pred_str(op_prec+1)}"
+  s = (f"{e.lhs._pred_str(op_prec,ind)} {p.op} "
+       f"{e.rhs._pred_str(op_prec+1,ind)}")
   return f"({s})" if prec > op_prec else s
 
 del _pred_str
@@ -313,53 +326,6 @@ def _function_str(f):
 del _function_str
 AST.function.__str__ = lambda f: f._function_str()
 UST.function.__str__ = lambda f: f._function_str()
-
-
-# def IR_latex_str(e,prec=0):
-#     eclass = type(e)
-#     s      = "ERROR"
-#     if   eclass is IR.Var:
-#         s = e.name
-#     elif eclass is IR.Const:
-#         s = str(e.val)
-#     elif eclass is IR.Add:
-#         s = f"{IR_latex_str(e.lhs,2)} + {IR_latex_str(e.rhs,2)}"
-#         if prec > 2: s = f"\\left({s}\\right)"
-#     elif eclass is IR.Mul:
-#         s = f"{IR_latex_str(e.lhs,3)} \\cdot {IR_latex_str(e.rhs,3)}"
-#         if prec > 3: s = f"\\left({s}\\right)"
-#     elif eclass is IR.Pair:
-#         s = f"\\left({IR_latex_str(e.lhs,0)},{IR_latex_str(e.rhs,0)}\\right)"
-#     elif eclass is IR.Proj:
-#         s = f"\\pi_{{{e.idx}}} {IR_latex_str(e.arg,4)}"
-#         if prec > 4: s = f"\\left({s}\\right)"
-#     elif eclass is IR.Gen or eclass is IR.Sum:
-#         op = "\\sum" if eclass is IR.Sum else "\\boxplus"
-#         s = f"{op}_{{{e.idxname}:{e.range}}}\\ {IR_latex_str(e.body,1)}"
-#         if prec > 1: s = f"\\left({s}\\right)"
-#     elif eclass is IR.Access:
-#         s = f"{IR_latex_str(e.base,5)}[{e.idx}]"
-#         if prec > 5: s = f"\\left({s}\\right)"
-#     elif eclass is IR.Indicate:
-#         assert isinstance(e.arg, IR.Eq), 'sanity: pred is Eq'
-#         s = f"[{e.arg.lhs}={e.arg.rhs}]\\cdot {IR_latex_str(e.body,3)}"
-#         if prec > 3: s = f"\\left({s}\\right)"
-#     elif eclass is IR.Let:
-#         # note that this is ill-behaved formatting
-#         # for lets nested inside of expressions
-#         s = (f"\\begin{{array}}{{l}}"
-#              f" \\textrm{{let }} {e.name} = "
-#              f"{IR_latex_str(e.rhs,0)}\\textrm{{ in}}\\\\"
-#              f" {IR_latex_str(e.body,0)}"
-#              f"\\end{{array}}")
-#         if prec > 0: s = f"\\left({s}\\right)"
-#     return s
-# 
-# def IR_latex_repr(e):
-#     return f"${IR_latex_str(e)}$"
-# 
-# IR.expr._repr_latex_ = IR_latex_repr
-
 
 
 # --------------------------------------------------------------------------- #
@@ -547,23 +513,22 @@ class _TypeChecker:
     elif nclass is UST.Const:
       return AST.Const( node.val, T.num, node.srcinfo )
     
-    elif nclass is UST.Add or nclass is UST.Mul:
+    elif nclass is UST.BinOp:
       lhs   = self.check(node.lhs)
       rhs   = self.check(node.rhs)
       typ   = lhs.type
       if lhs.type is T.error or rhs.type is T.error:
         typ = T.error
       elif lhs.type != rhs.type:
-        op  = '+' if nclass is UST.Add else '*'
         self._err(node, f"expected types of operands to match"
-                        f"for binary operator '{op}': {node}")
+                        f"for binary operator '{node.op}'")
         typ = T.error
-      elif nclass is UST.Mul and lhs.type != T.num:
-        self._err(node, f"expected scalar number operands to '*': {node}")
+      elif node.op != "+" and lhs.type != T.num:
+        self._err(node, f"expected scalar number operands to "
+                        f"'{node.op}'")
         typ = T.error
 
-      cstr  = AST.Add if nclass is UST.Add else AST.Mul
-      return cstr( lhs, rhs, typ, node.srcinfo )
+      return AST.BinOp( node.op, lhs, rhs, typ, node.srcinfo )
     
     elif nclass is UST.Tuple:
       args    = [ self.check(a) for a in node.args ]

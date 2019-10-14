@@ -94,10 +94,16 @@ class FunctionTestCase:
   def test_print(self):
     self.gen_func()
 
-  def test_print(self):
+  def test_print_deriv(self):
     deriv_sig         = self.gen_deriv_sig()
     dfunc             = self.gen_func()._TEST_TotalDeriv_Alone(**deriv_sig)
     #print(dfunc)
+
+  #def test_print_nir(self):
+  #  print(self.gen_func()._TEST_PrintNIR())
+
+  def test_print_nir_roundtrip(self):
+    print(self.gen_func()._TEST_NIR_Roundtrip_NoSimp())
 
   def test_interpreter(self):
     for fname,in_data,out_data in self.discover_data():
@@ -129,6 +135,15 @@ class FunctionTestCase:
         liftfunc          = func._TEST_PreNormalization()
         lift_out          = func.interpret(*in_data)
         np.testing.assert_allclose(out_data, lift_out)
+
+  def test_nir_roundtrip_no_simp(self):
+    # only test with one datum pair because we expect it's inefficient
+    fname,in_data,out_data = self.discover_rand_data()[0]
+    with self.subTest(data=fname):
+      func              = self.gen_func()
+      nir_func          = func._TEST_NIR_Roundtrip_NoSimp()
+      lift_out          = func.interpret(*in_data)
+      np.testing.assert_allclose(out_data, lift_out)
 
   def test_total_derivative_alone(self):
     for fname,in_data in self.discover_rand_deriv_input():

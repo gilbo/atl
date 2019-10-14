@@ -150,10 +150,12 @@ class _Interpreter:
       return result
     elif eclass is AST.Access:
       base    = self._exec(e.base)
+      succ    = True
       for ie in e.idx:
-        i = math.floor( self._exec(ie) )
-        base  = base[i]
-      return base
+        i     = self._exec(ie)
+        succ  = succ and i.denominator == 1
+        base  = base[math.floor(i)]
+      return base if succ else self._make_zero(e.type)
     elif eclass is AST.BuiltIn:
       args    = [ self._exec(a) for a in e.args ]
       return e.f.interpret(*args)

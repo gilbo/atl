@@ -311,21 +311,24 @@ UST.pred.__str__ = lambda p: p._pred_str()
 
 @extclass(UST.function)
 @extclass(AST.function)
-def _function_str(f):
-  sstr  = "sizes    "+(', '.join([ str(sz.name) for sz in f.sizes ]))
-  vstr  = "vars     "+(', '.join([ f"{str(vd.name)}:{vd.type}"
-                                  for vd in f.vars ]))
-  rstr  = "rels     "+(', '.join([
-      str(rd.name)+'('+(','.join([str(s) for s in rd.sizes]))+')'
-      for rd in f.relations ]))
-  rtstr = f"rettype  {f.rettype}"
-  bstr  = f"return\n{f.body}"
+def __str__(f):
+  ind     = "\n         "
+  colW    = 80-len(ind)
+  sstr    = "sizes    "+ind.join(wrapjoin([ str(sz.name) for sz in f.sizes ],
+                                 col_width=colW, delimit=", "))
+  vstr    = "vars     "+ind.join(wrapjoin([ f"{str(vd.name)}:{vd.type}"
+                                            for vd in f.vars ],
+                                          col_width=colW, delimit=", "))
+  relnms  = [ str(rd.name) + '(' + ','.join([str(s) for s in rd.sizes]) + ')'
+              for rd in f.relations ]
+  rstr    = "rels     "+ind.join(wrapjoin(relnms, col_width=colW,
+                                                  delimit=", "))
+  rtstr  = f"rettype  {f.rettype}"
+  bstr   = f"return\n{f.body}"
   nmstr = "" if f.name is None else f.name
 
   return f"function {nmstr}\n{sstr}\n{vstr}\n{rstr}\n{rtstr}\n{bstr}"
-del _function_str
-AST.function.__str__ = lambda f: f._function_str()
-UST.function.__str__ = lambda f: f._function_str()
+del __str__
 
 
 # --------------------------------------------------------------------------- #

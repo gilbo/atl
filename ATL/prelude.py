@@ -77,3 +77,34 @@ _null_srcinfo_obj = SrcInfo("unknown",0)
 def null_srcinfo(): return _null_srcinfo_obj
 
 
+
+
+
+
+# map [str] -> [str]
+def wrapjoin(strs, col_width=79, delimit="" ):
+  rlines      = []
+  count       = 0
+  line        = []
+  def flushline():
+    nonlocal  line, count
+    rlines.append( delimit.join(line) )
+    count     = 0
+    line      = []
+
+  for s in strs:
+    count    += len(s)
+    # if we overran the line, first thing to do is to flush it
+    if count > col_width:
+      flushline()
+      count  += len(s)
+    else:
+      count  += len(delimit)
+    # add this string to the current line regardless
+    line.append(s)
+
+  if len(line) > 0:
+    flushline()
+  return rlines
+
+

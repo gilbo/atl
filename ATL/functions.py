@@ -12,6 +12,7 @@ from .py_type_values import *
 from .interpreter import Interpret
 from .norm_ast    import LetLift, TupleElimination, IndexDownGenUp
 from .deriv_ast   import TotalDerivative
+from .norm_ir     import AST_to_NIR, NIR_to_AST
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -262,5 +263,14 @@ class Function:
     ast             = TotalDerivative(normed._ast, dvars, output).result()
     return Function(ast, _do_bound_check=False)
 
+  def _TEST_PrintNIR(self):
+    normed          = self._TEST_PreNormalization()
+    nir             = AST_to_NIR(normed._ast).result()
+    return str(nir)
 
+  def _TEST_NIR_Roundtrip_NoSimp(self):
+    normed          = self._TEST_PreNormalization()
+    nir             = AST_to_NIR(normed._ast,use_simplify=False).result()
+    ast             = NIR_to_AST(nir).result()
+    return Function(ast, _do_bound_check=False)
 

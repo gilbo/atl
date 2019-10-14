@@ -34,6 +34,13 @@ Tensor  = _Types.Tensor
 num     = Num()
 error   = Error()
 
+# extra constructor...
+def tensor_shape(ranges):
+  typ = num
+  for r in reversed(ranges):
+    typ = Tensor(r,typ)
+  return typ
+
 # --------------------------------------------------------------------------- #
 # string representation of types...
 
@@ -131,6 +138,7 @@ def matches(ltyp, rtyp):
     # passed all checks
     return True
   else: assert False, "impossible type case"
+del matches
 
 
 # --------------------------------------------------------------------------- #

@@ -101,6 +101,51 @@ class _Sqrt(ScalarBI):
     return math.sqrt(x)
 sqrt = _Sqrt()
 
+class _Ln(ScalarBI):
+  def __init__(self):
+    super().__init__('ln',1)
+
+  def deriv( self, x, dx, srcinfo=null_srcinfo() ):
+    return F.AST.BinOp( '/', dx, x, T.num, srcinfo )
+
+  def interpret(self,x):
+    return math.log(x)
+ln = _Ln()
+
+class _Pow(ScalarBI):
+  def __init__(self):
+    super().__init__('pow',2)
+
+  def deriv( self, x, y, dx, dy, srcinfo=null_srcinfo() ):
+    # for efficiency, bind x and y as temporaries
+    base, exp     = Sym('base'), Sym('exp')
+    xstmt         = F.AST.assign( base, T.num, x, srcinfo )
+    ystmt         = F.AST.assign( exp,  T.num, y, srcinfo )
+    x, y          = F.AST.Var(base), F.AST.Var(exp)
+
+    # D[[ x^y | x ]] =    y * x^(y-1) * dx
+    # D[[ x^y | y ]] =  x^y *  ln(x)  * dy
+    y_n1          = F.AST.BinOp("-",y, F.AST.Const(1.0,T.num,srcinfo),
+                                T.num, srcinfo)
+    pow_dx        = F.AST.BinOp("*", y,
+                                F.AST.BuiltIn(pow,[x,y_n1],T.num,srcinfo),
+                                T.num, srcinfo)
+    pow_dy        = F.AST.BinOp("*",
+                                F.AST.BuiltIn(pow,[x,y],T.num,srcinfo),
+                                F.AST.BuiltIn(ln,[x],T.num,srcinfo),
+                                T.num, srcinfo)
+
+    return F.AST.Let( [xstmt, ystmt],
+              F.AST.BinOp("+",
+                  F.AST.BinOp("*", pow_dx, dx, T.num, srcinfo),
+                  F.AST.BinOp("*", pow_dy, dy, T.num, srcinfo),
+                  T.num, srcinfo),
+              T.num, srcinfo)
+
+  def interpret(self,x,y):
+    return x ** y
+pow = _Pow()
+
 class _Select_GT(ScalarBI):
   def __init__(self):
     super().__init__('select_gt',4)

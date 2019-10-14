@@ -716,7 +716,7 @@ class IndexDownGenUp:
     elif eclass is AST.TensorLit:
       # Sometimes literals will compose scalar expressions.  In that
       # special case, let's preserve the Tensor Literal structure
-      if len(idxstk) == 0 and e.args[0].type is T.num:
+      if False: #len(idxstk) == 0 and e.args[0].type is T.num:
         args          = []
         for a in e.args:
           gens, arg   = self.downup(a)

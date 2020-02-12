@@ -7,7 +7,7 @@ from . import builtins  as B
 from fractions import Fraction
 
 from .frontend import AST
-from .norm_ir import NIR, NIR_Check, NIR_Stmts
+from .norm_ir import NIR, NIR_Check, NIR_Stmts, nir_is_rescale
 
 from math import gcd
 def lcm(x,y): return x*y // gcd(x,y)
@@ -50,8 +50,12 @@ class AST_to_NIR:
     body              = f.body
     if type(body) is AST.Let:
       for s in body.stmts:
-        rhs           = self.normalize(s.rhs).simplify()
+        rhs           = self.normalize(s.rhs)
+        unsimp  = rhs
+        if use_simplify:
+          rhs         = rhs.simplify()
         self._ctxt.set( s.name, rhs )
+        #print('****',s.name,'\n', unsimp, '\nxxxx\n',rhs)
       body            = body.ret
     # now we have an expression which may be
     # a tuple in need of decomposition
@@ -63,12 +67,14 @@ class AST_to_NIR:
         if e.type == T.num:
           enorm       = self.normalize(e)
         else:
-          for r in e.type.shape():
-            self._ranges.append(r)
+          #for r in e.type.shape():
+          #  self._ranges.append(r)
           enorm       = self.normalize(e)
           self._ranges = []
+        unsimp        = enorm
         if use_simplify:
-          enorm     = enorm.simplify()
+          enorm       = enorm.simplify()
+        #print('**** OUTPUT\n', unsimp, '\nxxxx\n',enorm)
         return NIR.OutLeaf( enorm, e.type, e.srcinfo )
     out = decompose(body)
 
@@ -81,7 +87,11 @@ class AST_to_NIR:
                               relations   = rels,
                               output      = out,
                               srcinfo     = f.srcinfo )
-    NIR_Check(self._nir)
+    try:
+      NIR_Check(self._nir)
+    except Exception as err:
+      print(self._nir)
+      raise err
 
   def result(self):
     return self._nir
@@ -120,9 +130,18 @@ class AST_to_NIR:
       else:
         gen_binds, out_binds, preds = self.get_pass_binds(e.type)
         # need to sum using ibind, but numbered to come after 2*len(ranges)
-        out_binds.append(NIR.idx_bind( NIR.ivar( 2*len(self._ranges) + 1 ),
+        out_binds.append(NIR.idx_bind( NIR.ivar( 2*len(self._ranges) ),
                                        e.range ))
 
+        assert type(result.type) is T.Tensor
+        #if tuple(self._ranges) != tuple(result.type.shape()[0:-1]):
+        #  print(self._ranges_type())
+        #  print(result.type, result.type.type)
+        #  print(gen_binds)
+        #  print(out_binds)
+        #  print(e.type)
+        #  print(e)
+        assert tuple(self._ranges) == tuple(result.type.shape()[0:-1])
         return NIR.Contract( gen_binds, [], 1.0, preds,
                              [NIR.factor( result, out_binds, Fraction(1) )],
                              self._ranges_type() )
@@ -138,6 +157,13 @@ class AST_to_NIR:
     elif eclass is AST.BinOp:
       lhs         = self.normalize(e.lhs)
       rhs         = self.normalize(e.rhs)
+      if lhs.type != rhs.type:
+        print(lhs.type, rhs.type)
+        print(e)
+        print(lhs)
+        print(rhs)
+      assert lhs.type == rhs.type
+      assert lhs.type == self._ranges_type()
       if   e.op == '+':
         return NIR.Sum(0.0, [lhs, rhs], lhs.type)
       elif e.op == '-':
@@ -155,6 +181,7 @@ class AST_to_NIR:
 
     elif eclass is AST.BuiltIn:
       args = [ self.normalize(a) for a in e.args ]
+      for a in args: assert a.type == self._ranges_type()
       if e.f == B.sqrt:
         return NIR.Pow( args[0], Fraction(1,2), self._ranges_type() )
       else:
@@ -164,7 +191,9 @@ class AST_to_NIR:
       gen_binds, out_binds, preds = self.get_pass_binds(e.type)
       p, sum_binds                = self.norm_pred(e.pred, len(gen_binds)+
                                                            len(out_binds))
+      preds.append(p)
       body        = self.normalize(e.body)
+      assert self._ranges_type() == body.type
       return NIR.Contract( gen_binds, sum_binds, 1.0, preds,
                            [NIR.factor(body, out_binds, Fraction(1))],
                            self._ranges_type() )
@@ -211,16 +240,48 @@ class AST_to_NIR:
       assert len(projs) == 0, "should not be projecting intermediates"
 
     # regardless, apply any necessary accesses.
-    # NOTE: our context defines the expected shape to be a tensor of
-    #       dimension [self._ranges]
-    #     Therefore, if there are no accesses we must still broadcast
-    #       the scalar value out to this dimensional tensor.  If there
-    #       are accesses, then those accesses need to be converted
-    #       into a general Contraction node.  Either way, we need to
-    #       construct a Contraction node.
+    # Weird cases to consider
+    #     Gen[i,j]   x      where x is a scalar
+    #     Gen[i]     x      where x is a vector
+    #     x                 where x is a tensor
+    #     Gen[i,j]   x[i]   where x is a matrix
+    # Obviously we don't have the `Gen` here, but the `self._ranges`
+    #   variable tracks similar information about any generators or
+    #   summations or whatever that require possible broadcasts.
+    # The above cases must be transformed by inserting additional
+    #   accesses and generators until the intermediate expression is a
+    #   scalar value.  However, these generators and accesses must be put
+    #   in the right place.  For instance, in the last case, that would be
+    #   as
+    #     Gen[i,j] Gen[k]  x[i][k]
+    #   or in the innermost position in both cases.  At the end of the list
+    #   of generators and accesses.  The number of such additions cannot
+    #   be reliably inferred from the size of self._ranges, but must be
+    #   based on the type of `x` and the number of explicit accesses.
     gen_binds   = ibrange(self._ranges)
-    out_binds   = ( ibrange(x.type.shape(), base=len(gen_binds))
-                    if x.type != T.num else [] )
+    # Add any necessary padding accesses:
+    n_acc       = len(access)
+    x_shape     = x.type.shape() if x.type != T.num else []
+    self._idx_vars.push()
+    for i in range( n_acc, len(x_shape) ):
+      ibind     = NIR.idx_bind( NIR.ivar(i), x_shape[i] )
+      gen_binds.append( ibind )
+      sym       = Sym('tmp_i')
+      self._idx_vars.set(sym, ibind)
+      access.append( AST.IdxVar(sym, null_srcinfo()) )
+    # we build a final type by going over all ADDED access dimensions
+    # and all generator dimensions from the context (i.e. _ranges)
+    # note that this process may lead to contracting over some
+    # of the dimensions of x, especially when x is indexed with a constant
+    typ         = T.num
+    for r in reversed(x_shape[n_acc:]):
+      typ       = T.Tensor(r, typ)
+    for r in reversed(self._ranges):
+      typ       = T.Tensor(r, typ)
+
+    # then create the output bindings
+    out_binds   = ibrange(x_shape, base=len(gen_binds))
+    assert len(access) == len(out_binds)
     preds       = [ self.name_aexpr( gi.ivar, self.norm_aexpr(a) )
                     for a,gi in zip(access,out_binds) ]
 
@@ -230,7 +291,7 @@ class AST_to_NIR:
     else:
       return NIR.Contract( gen_binds, [], 1.0, preds,
                            [ NIR.factor(x,out_binds,Fraction(1)) ],
-                           self._ranges_type() )
+                           typ )
 
   def do_mul(self, lhs, rhs):
     rngs        = self._ranges
@@ -256,10 +317,14 @@ class AST_to_NIR:
       return NIR.affine(Fraction(0),[ NIR.aterm(Fraction(1), name, None) ])
     elif aclass is AST.IdxSize:
       return NIR.affine(Fraction(0),[ NIR.aterm(Fraction(1), None, a.name) ])
-    elif aclass is AST.IdxAdd:
+    elif aclass is AST.IdxAdd or aclass is AST.IdxSub:
       lhs       = self.norm_aexpr(a.lhs)
       rhs       = self.norm_aexpr(a.rhs)
-      return NIR.affine(lhs.offset + rhs.offset, lhs.terms + rhs.terms)
+      if aclass is AST.IdxAdd:
+        return NIR.affine(lhs.offset + rhs.offset, lhs.terms + rhs.terms)
+      else:
+        rterms  = [ NIR.aterm( -t.coeff, t.ivar, t.size ) for t in rhs.terms ]
+        return NIR.affine(lhs.offset - rhs.offset, lhs.terms + rterms)
     elif aclass is AST.IdxScale:
       idx       = self.norm_aexpr(a.idx)
       terms     = [ NIR.aterm(a.coeff * t.coeff, t.ivar, t.size)
@@ -338,7 +403,14 @@ class NIR_to_AST:
         typ               = out.expr.type
         shape             = [] if typ == T.num else typ.shape()
         self.init_idx_stack(shape)
-        return self.to_ast(out.expr)
+        ast               = self.to_ast(out.expr, do_bind = True,
+                                                  top_level = True)
+        if type(ast) is AST.Var or type(ast) is AST.Proj:
+          return ast
+        elif type(ast) is AST.Access:
+          assert len(ast.idx) == len(self._indices)
+          return ast.base
+        else: assert False, f"case should be impossible? {type(ast)}"
       else: assert False, "unexpected case"
     body                  = recompose(f.output)
 
@@ -391,6 +463,10 @@ class NIR_to_AST:
     self._indices     = self._idx_stack.pop()
 
   def wrap_gens(self, ast):
+    if ast.type is not T.num:
+      print("UH OH")
+      print(ast)
+      print("HO HU")
     assert ast.type is T.num
     for idx,rng in reversed(self._indices):
       assert type(idx) is AST.IdxVar
@@ -408,13 +484,23 @@ class NIR_to_AST:
       return AST.Access( ast, [idx for idx,rng in self._indices],
                          T.num, null_srcinfo() )
 
-  def to_ast(self, e, do_bind=False):
+  def to_ast(self, e, do_bind=False, top_level=False):
     if e in self._expr_cache:
       ast             = self._expr_cache[e]
     else:
       do_bind         = ( do_bind or
                           self._STMT.is_repeated(e) or
                           type(e) is NIR.Contract )
+      # short-circuit binding if this is a leaf-node
+      # binding leaf nodes to variables is unnecessary and
+      # will cause issues if we try to wrap_gens() around some such leaves.
+      if type(e) is NIR.Var or type(e) is NIR.Const:
+        do_bind       = False
+      if nir_is_rescale(e):
+        do_bind       = False
+      if top_level:
+        do_bind       = True
+
       if do_bind:
         self.push_idx_binds()
       ast             = self._to_ast_helper(e)
@@ -458,11 +544,20 @@ class NIR_to_AST:
       terms          += [ self.to_ast(t) for t in e.terms ]
       assert all([ t.type == T.num for t in terms ])
 
+      # try to move a non-subtraction to the front...
+      def is_mul_neg1(t):
+        return (type(t) is AST.BinOp and t.op == "*" and
+                type(t.lhs) is AST.Const and t.lhs.val == -1.0)
+      if is_mul_neg1(terms[0]):
+        for i in range(1,len(terms)):
+          if not is_mul_neg1(terms[i]):
+            terms[i], terms[0] = terms[0], terms[i]
+            break
+
       ast             = terms[0]
       for t in terms[1:]:
         # get rid of the pattern ... + -1.0*t
-        if ( type(t) is AST.BinOp and t.op == "*" and
-             type(t.lhs) is AST.Const and t.lhs.val == -1.0 ):
+        if is_mul_neg1(t):
           ast         = AST.BinOp("-", ast, t.rhs, T.num, null_srcinfo())
         else:
           ast         = AST.BinOp("+", ast, t, T.num, null_srcinfo())
@@ -494,7 +589,8 @@ class NIR_to_AST:
                               base, T.num, null_srcinfo())
       elif e.power == Fraction(-1,2):
         return AST.BinOp("/", AST.Const(1.0,T.num,null_srcinfo()),
-                              AST.BuiltIn( B.sqrt, [base] ),
+                              AST.BuiltIn( B.sqrt, [base],
+                                           T.num, null_srcinfo() ),
                               T.num, null_srcinfo() )
 
       elif is_small_int(e.power):
@@ -528,8 +624,8 @@ class NIR_to_AST:
     # collect binding ranges for reference
     franges         = { i.ivar : i.range for f in e.factors
                                          for i in f.idx }
-    for i in e.sum_binds:
-      franges[i.ivar] = i.range
+    for i in e.gen_binds:     franges[i.ivar] = i.range
+    for i in e.sum_binds:     franges[i.ivar] = i.range
 
     # helper functions
     def mul_aff(s, eq):
@@ -582,6 +678,48 @@ class NIR_to_AST:
         else:             terms.append(t)
       assert ivterm and len(terms) == len(eq.terms)-1
       return ivterm, NIR.affine(eq.offset, terms)
+    def sub_bound_filters(iv,eq):
+      # use interval analysis to identify most trivially
+      # satisfied filters
+      lo_as, lo_off = [], eq.offset
+      hi_as, hi_off = [], eq.offset
+      for a in eq.terms:
+        if a.ivar is not None:
+          rng       = franges[a.ivar]
+        else:
+          rng       = a.size
+        if type(rng) is Sym:
+          asub      = NIR.aterm(a.coeff, None, rng)
+          if a.coeff > 0  or a.size is not None:
+            hi_as.append( asub )
+          if a.coeff <= 0 or a.size is not None:
+            lo_as.append( asub )
+        else:
+          assert type(rng) is int
+          lo_off   += a.coeff * rng
+          hi_off   += a.coeff * rng
+      # now determine whether lo >= 0, hi <= iv.range and construct filters
+      if type(franges[iv]) is Sym:
+        hi_as.append( NIR.aterm(Fraction(-1), None, franges[iv]) )
+      else:
+        hi_off     -= franges[iv]
+      #print(" P P P  ", len(eq.terms))
+      #print("    pre ", lo)
+      #print("    pre ", hi)
+      lo            = NIR.affine(lo_off,lo_as).simplify()
+      hi            = NIR.affine(hi_off,hi_as).simplify()
+      filters = []
+      if lo.offset < 0 or any([ a.coeff < 0 for a in lo.terms ]):
+        filters.append( NIR.Cmp('>=',eq) )
+      if hi.offset > 0 or any([ a.coeff > 0 for a in hi.terms ]):
+        hi_eq = mul_aff(-1,eq)
+        hi_eq.terms.append( NIR.aterm(Fraction(1), None, franges[iv]) )
+        filters.append( NIR.Cmp('>',hi_eq.simplify()) )
+      #print("ANALYZE ", iv, eq)
+      #print("        ", lo)
+      #print("        ", hi)
+      #print("        ",len(filters))
+      return filters
     def do_sub(iv,eq):
       ast_idx       = self.aff_to_idx(eq,idx_map)
       idx_map.set( iv, ast_idx )
@@ -596,6 +734,7 @@ class NIR_to_AST:
       # clear out the bound variable from free variables
       for a,FV in subs:
         if iv in FV: del FV[iv]
+    #print(subs)
 
     # iterate until all substitutions have been processed
     while len(subs) > 0:
@@ -612,12 +751,21 @@ class NIR_to_AST:
           freeterm, rest_eq = split_eq(eq, freevar)
           # do the substitution
           did_sub   = True
+          #if freevar.name == 1:
+          #  print('**', freeterm, rest_eq)
           if abs(freeterm.coeff) != 1:
             # in this case, substitute AND filter
             filters.append(NIR.Cmp("==",eq))
           # regardless substitute
-          rest_eq   = mul_aff(freeterm.coeff, rest_eq)
+          # we negate because the equation is
+          #     freeterm + rest_eq == 0
+          # and we are changing to
+          #     freeterm == -rest_eq
+          rest_eq   = mul_aff(-1/freeterm.coeff, rest_eq)
           do_sub(freevar,rest_eq)
+          filters  += sub_bound_filters(freevar,rest_eq)
+          #if freevar.name == 1:
+          #  print('** x', freeterm, rest_eq)
         else: # over 1 free variable...
           keepsubs.append( (eq,FV) )
 
@@ -696,7 +844,7 @@ class NIR_to_AST:
                       AST.IdxConst(0,null_srcinfo()), null_srcinfo() )
       pass
     elif pclass is NIR.Relation:
-      args          = [ self.pred_to_ast(subp, idx_map) for subp in p.preds ]
+      args          = [ idx_map.get(a) for a in p.args ]
       return AST.Relation(p.name, args, null_srcinfo())
     elif pclass is NIR.Conj or pclass is NIR.Disj:
       astOp         = AST.Conj if pclass is NIR.Conj else AST.Disj
@@ -722,9 +870,12 @@ class NIR_to_AST:
       else:
         ast         = AST.IdxSize(t.size, null_srcinfo())
 
-      if t.coeff != 1:
-        ast         = AST.IdxScale(t.coeff, ast, null_srcinfo())
-      idx           = ast if not idx else AST.IdxAdd(idx, ast,
+      if t.coeff == -1 and idx != None:
+        idx         = AST.IdxSub(idx, ast, null_srcinfo())
+      else:
+        if t.coeff != 1:
+          ast       = AST.IdxScale(t.coeff, ast, null_srcinfo())
+        idx         = ast if not idx else AST.IdxAdd(idx, ast,
                                                      null_srcinfo())
     if not idx: idx = AST.IdxConst(0, null_srcinfo())
     return idx

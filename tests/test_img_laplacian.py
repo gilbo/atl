@@ -67,18 +67,24 @@ class TestImgLaplacian(unittest.TestCase, FunctionTestCase):
   def rand_deriv_input(self):
     w, h, img = self.rand_input()
     dimg      = self.rand.rand_ndarray([h,w])
-    return (w,h,img,dimg)
+    return ((w,h,img),(dimg,))
+
+  def rand_deriv_inout(self):
+    indata, din   = self.rand_deriv_input()
+    w, h          = indata[0:2]
+    d_out         = self.rand.uniform(-2,2)
+    return (indata,din,d_out)
     
   def data_zeros(self):
     w, h      = 4, 4
-    img       = np.zeros([h,w])
+    img       = np.zeros([h,w], order='F')
     predict   = 0.0
     return (w,h,img), predict
 
   def data_checker_2(self):
     # a small checker pattern
     w, h      = 8, 6
-    img       = np.zeros([h,w])
+    img       = np.zeros([h,w], order='F')
     predict   = float( 3*6 + 8*2 )
     
     for i in range(0,w):

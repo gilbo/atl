@@ -7,7 +7,6 @@ from .prelude import *
 
 from . import atl_types as T
 
-from . import builtins as B 
 
 from fractions import Fraction
 
@@ -127,6 +126,7 @@ module AST {
           | IdxVar    ( sym      name )
           | IdxSize   ( sym      name )
           | IdxAdd    ( index    lhs,   index rhs )
+          | IdxSub    ( index    lhs,   index rhs )
           | IdxScale  ( fraction coeff, index idx )
           attributes( srcinfo srcinfo )
   
@@ -268,6 +268,10 @@ def _index_str(e,prec=0,ind=''):
 def _index_str(e,prec=0,ind=''):
   s = f"{e.lhs._index_str(50,ind)} + {e.rhs._index_str(51,ind)}"
   return f"({s})" if prec > 50 else s
+@extclass(AST.IdxSub)
+def _index_str(e,prec=0,ind=''):
+  s = f"{e.lhs._index_str(50,ind)} - {e.rhs._index_str(51,ind)}"
+  return f"({s})" if prec > 50 else s
 @extclass(UST.IdxScale)
 @extclass(AST.IdxScale)
 def _index_str(e,prec=0,ind=''):
@@ -298,10 +302,10 @@ def _pred_str(p,prec=0,ind=''):
 @extclass(AST.Conj)
 @extclass(AST.Disj)
 def _pred_str(p,prec=0,ind=''):
-  op = "and" if pclass is AST.Conj else "or"
-  op_prec = _AST_op_prec[p.op]
-  s = (f"{e.lhs._pred_str(op_prec,ind)} {p.op} "
-       f"{e.rhs._pred_str(op_prec+1,ind)}")
+  op = "and" if type(p) is AST.Conj else "or"
+  op_prec = _AST_op_prec[op]
+  s = (f"{p.lhs._pred_str(op_prec,ind)} {op} "
+       f"{p.rhs._pred_str(op_prec+1,ind)}")
   return f"({s})" if prec > op_prec else s
 
 del _pred_str
@@ -710,7 +714,7 @@ class _TypeChecker:
     #          catch-all error          #
 
     else:
-      assert false, "Unexpected UST class for {node}"
+      assert False, "Unexpected UST class for {node}"
 
 def _UST_function_typecheck(f):
   return _TypeChecker(f).typed_ast()
@@ -721,5 +725,6 @@ del _UST_function_typecheck
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
+from . import builtins as B 
 
 

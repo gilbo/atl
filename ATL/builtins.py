@@ -3,6 +3,8 @@ from .prelude import *
 
 from . import atl_types as T
 from . import frontend as F
+from . import norm_ir as N
+from .halide_ir import HIR
 
 #import numpy as np
 
@@ -34,6 +36,15 @@ class BuiltIn:
     raise NotImplementedError()
 
   def deriv(self,*args):
+    raise NotImplementedError()
+
+  def nir_deriv(self,*args):
+    raise NotImplementedError()
+
+  def nir_adjoint(self,*args):
+    raise NotImplementedError()
+
+  def halide_compile(self,*args):
     raise NotImplementedError()
 
   def interpret(self,*args):
@@ -68,6 +79,18 @@ class _Sin(ScalarBI):
     cos_x       = F.AST.BuiltIn(cos, [x], T.num, srcinfo)
     return F.AST.BinOp( '*', cos_x, dx, T.num, srcinfo )
 
+  def nir_deriv( self, x, dx ):
+    cos_x       = N.NIR.BuiltIn(cos, [x], x.type)
+    return N.nir_mul(cos_x, dx)
+
+  def nir_adjoint( self, diffT, x ):
+    cos_x       = N.NIR.BuiltIn(cos, [x], x.type)
+    dx          = N.nir_mul(cos_x, diffT)
+    return (dx,)
+
+  def halide_compile( self, x ):
+    return HIR.MathFn1("sin", x)
+
   def interpret(self,x):
     return math.sin(x)
 sin = _Sin()
@@ -81,6 +104,18 @@ class _Cos(ScalarBI):
                                     F.AST.BuiltIn(sin, [x], T.num, srcinfo),
                                     T.num, srcinfo )
     return F.AST.BinOp( '*', neg_sin_x, dx, T.num, srcinfo )
+
+  def nir_deriv( self, x, dx ):
+    sin_x       = N.NIR.BuiltIn(sin, [x], x.type)
+    return N.nir_mul(sin_x, dx, coeff=-1.0)
+
+  def nir_adjoint( self, diffT, x ):
+    sin_x       = N.NIR.BuiltIn(sin, [x], x.type)
+    dx          = N.nir_mul(sin_x, diffT, coeff=-1.0)
+    return (dx,)
+
+  def halide_compile( self, x ):
+    return HIR.MathFn1("cos", x)
 
   def interpret(self,x):
     return math.cos(x)
@@ -97,6 +132,15 @@ class _Sqrt(ScalarBI):
                         F.AST.BuiltIn(sqrt, [x], T.num, srcinfo),
                         T.num, srcinfo )
 
+  def nir_deriv( self, x, dx ):
+    assert False, "Should have been converted to NIR.Pow"
+
+  def nir_adjoint( self, diffT, x ):
+    assert False, "Should have been converted to NIR.Pow"
+
+  def halide_compile( self, x ):
+    return HIR.MathFn1("sqrt", x)
+
   def interpret(self,x):
     return math.sqrt(x)
 sqrt = _Sqrt()
@@ -107,6 +151,18 @@ class _Ln(ScalarBI):
 
   def deriv( self, x, dx, srcinfo=null_srcinfo() ):
     return F.AST.BinOp( '/', dx, x, T.num, srcinfo )
+
+  def nir_deriv( self, x, dx ):
+    inv_x       = N.NIR.Pow(x, Fraction(-1), x.type)
+    return N.nir_mul(dx, inv_x)
+
+  def nir_adjoint( self, diffT, x ):
+    inv_x       = N.NIR.Pow(x, Fraction(-1), x.type)
+    dx          = N.nir_mul(inv_x, diffT)
+    return (dx,)
+
+  def halide_compile( self, x ):
+    return HIR.MathFn1("log", x)
 
   def interpret(self,x):
     return math.log(x)
@@ -142,6 +198,15 @@ class _Pow(ScalarBI):
                   T.num, srcinfo),
               T.num, srcinfo)
 
+  def nir_deriv( self, x, y, dx, dy ):
+    raise NotImplementedError("need to handle exponents")
+
+  def nir_adjoint( self, diffT, x, y ):
+    raise NotImplementedError("need to handle exponents")
+
+  def halide_compile( self, x, y ):
+    return HIR.Pow(x,y)
+
   def interpret(self,x,y):
     return x ** y
 pow = _Pow()
@@ -153,6 +218,18 @@ class _Select_GT(ScalarBI):
   def deriv( self, x, y, a, b, dx, dy, da, db, srcinfo=null_srcinfo() ):
     return F.AST.BuiltIn( select_gt, [x, y, da, db], T.num, srcinfo )
 
+  def nir_deriv( self, x, y, a, b, dx, dy, da, db ):
+    return N.NIR.BuiltIn( select_gt, [x,y,da,db], x.type)
+
+  def nir_adjoint( self, diffT, x, y, a, b ):
+    zero    = N.NIR.Const( 0.0, x.type )
+    da      = N.NIR.BuiltIn( select_gt, [x,y,diffT,zero], x.type )
+    db      = N.NIR.BuiltIn( select_gt, [x,y,zero,diffT], x.type )
+    return zero, zero, da, db
+
+  def halide_compile( self, x, y, a, b ):
+    return HIR.Select( HIR.BinOp(">=",x,y), a, b )
+
   def interpret(self,x,y,a,b):
     return a if x > y else b
 select_gt = _Select_GT()
@@ -163,6 +240,18 @@ class _Max(ScalarBI):
 
   def deriv( self, a, b, da, db, srcinfo=null_srcinfo() ):
     return F.AST.BuiltIn( select_gt, [a, b, da, db], T.num, srcinfo )
+
+  def nir_deriv( self, a, b, da, db ):
+    return N.NIR.BuiltIn( select_gt, [a,b,da,db], a.type)
+
+  def nir_adjoint( self, diffT, a, b ):
+    zero    = N.NIR.Const( 0.0, a.type )
+    da      = N.NIR.BuiltIn( select_gt, [a,b,diffT,zero], a.type )
+    db      = N.NIR.BuiltIn( select_gt, [a,b,zero,diffT], a.type )
+    return da, db
+
+  def halide_compile( self, a, b ):
+    return HIR.Max( a,b )
 
   def interpret(self,a,b):
     return max(a,b)
@@ -178,6 +267,24 @@ class _Min(ScalarBI):
     neg_b   = F.AST.BinOp( '*', F.AST.Const(-1.0, T.num, srcinfo),
                                 b, T.num, srcinfo )
     return F.AST.BuiltIn( select_gt, [neg_a, neg_b, da, db], T.num, srcinfo )
+
+  def nir_deriv( self, a, b, da, db ):
+    neg_1   = N.NIR.Const(1.0,a.type)
+    neg_a   = N.nir_mul(neg_1, a)
+    neg_b   = N.nir_mul(neg_1, b)
+    return N.NIR.BuiltIn( select_gt, [neg_a,neg_b,da,db], a.type )
+
+  def nir_adjoint( self, diffT, a, b ):
+    neg_1   = N.NIR.Const(1.0,a.type)
+    neg_a   = N.nir_mul(neg_1, a)
+    neg_b   = N.nir_mul(neg_1, b)
+    zero    = N.NIR.Const( 0.0, a.type )
+    da      = N.NIR.BuiltIn( select_gt, [neg_a,neg_b,diffT,zero], a.type )
+    db      = N.NIR.BuiltIn( select_gt, [neg_a,neg_b,zero,diffT], a.type )
+    return da, db
+
+  def halide_compile( self, a, b ):
+    return HIR.Min( a,b )
 
   def interpret(self,a,b):
     return min(a,b)

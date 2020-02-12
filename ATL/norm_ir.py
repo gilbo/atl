@@ -5,7 +5,6 @@ from .adt import memo as ADTmemo
 from .prelude import *
 
 from . import atl_types as T
-from . import builtins as B 
 
 from fractions import Fraction
 from functools import lru_cache
@@ -14,6 +13,7 @@ from collections import namedtuple
 import math
 
 from .frontend import AST
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -89,7 +89,7 @@ module NIR {
 ADTmemo(NIR,[
   'Var', 'Const', 'Sum', 'Contract', 'Pow', 'BuiltIn',
   'ivar', 'idx_bind', 'factor', 'affine', 'aterm',
-  'Cmp', 'Relation', 'Conj', 'Disj', 'TrueP', 'FalseP',
+  'Alias', 'Cmp', 'Relation', 'Conj', 'Disj', 'TrueP', 'FalseP',
 ],{
   'name':     lambda x: x,
   'sym':      lambda x: x,
@@ -100,6 +100,49 @@ ADTmemo(NIR,[
   'pred_op':  lambda x: x,
   'plabel':   lambda x: x,
 })
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+def nir_mul(lhs, rhs, coeff = 1.0):
+  assert lhs.type == rhs.type
+  typ               = lhs.type
+  gen, ids          = [], []
+  l_idx, r_idx      = [], []
+  N                 = 0 if typ == T.num else len(typ.shape())
+  if N > 0:
+    for i,r in enumerate(typ.shape()):
+      iv            = NIR.ivar(i)
+      ivN           = NIR.ivar(i+N)
+      ivNN          = NIR.ivar(i+N+N)
+      gen.append(   NIR.idx_bind(iv,  r) )
+      l_idx.append( NIR.idx_bind(ivN, r) )
+      r_idx.append( NIR.idx_bind(ivNN,r) )
+      ids.append( NIR.Alias(iv,ivN) )
+      ids.append( NIR.Alias(iv,ivNN) )
+
+  return NIR.Contract( gen, [], coeff, ids, [
+                        NIR.factor( lhs, l_idx, Fraction(1) ),
+                        NIR.factor( rhs, r_idx, Fraction(1) ),
+                       ], lhs.type )
+
+def nir_is_rescale(nir):
+  if (  type(nir) is not NIR.Contract or
+        len(nir.sum_binds) > 0 or
+        len(nir.factors) != 1  ):
+    return False
+  f = nir.factors[0]
+  if ( len(nir.gen_binds) != len(f.idx) or
+       len(nir.gen_binds) != len(nir.preds) or
+       f.power != 1 ):
+    return False
+  for g,i,p in zip(nir.gen_binds, f.idx, nir.preds):
+    if ( g.range != i.range or
+         type(p) is not NIR.Alias or
+         g.ivar != p.lvar or
+         i.ivar != p.rvar ):
+      return False
+  return True
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -115,6 +158,7 @@ class NIR_Stmts:
           exprs.append( tup.expr )
         else:
           for t in tup.args: unpack(t)
+      unpack(nir)
     else: assert False, "expected tuple_out or expr"
 
     # get counts of each occuring expression
@@ -269,8 +313,30 @@ class NIR_Check:
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
+@extclass(NIR.ivar)
+def __str__(iv):
+  return f"i{iv.name}"
+
 class _Stmt_Strs:
   def __init__(self, f):
+    if type(f) is NIR.function:
+      self._init_f(f)
+    elif isinstance(f, NIR.expr):
+      self._init_e(f)
+    else: assert False, "Bad type to Stmt_Strs"
+
+  def _init_e(self,e):
+    used_varnames = {}
+    self._used_varnames   = used_varnames
+    self._count           = 0
+
+    self._STMT            = NIR_Stmts(e)
+    self._expr_var        = {}
+    self._stmts           = []
+
+    self._output          = self.getstr(e)
+
+  def _init_f(self, f):
     used_varnames = {}
     for sz in f.sizes:      used_varnames[str(sz.name)] = True
     for vd in f.vars:       used_varnames[str(vd.name)] = True
@@ -298,7 +364,7 @@ class _Stmt_Strs:
 
   def get_new_var(self):
     self._count  += 1
-    name          = f"v_{self._count}"
+    name          = f"$v_{self._count}"
     if name in self._used_varnames:
       return self.get_new_var()
     return name
@@ -331,10 +397,10 @@ class _Stmt_Strs:
       # collect various prefixes into a buffer of lines
       lines         = []
       if len(e.gen_binds) > 0:
-        gens        = [ f"i{b.ivar.name}:{b.range}" for b in e.gen_binds ]
+        gens        = [ f"{b.ivar}:{b.range}" for b in e.gen_binds ]
         lines.append( f"Gen[{', '.join(gens)}]" )
       if len(e.sum_binds) > 0:
-        sums        = [ f"i{b.ivar.name}:{b.range}" for b in e.sum_binds ]
+        sums        = [ f"{b.ivar}:{b.range}" for b in e.sum_binds ]
         lines.append( f"Sum[{', '.join(sums)}]" )
       if len(e.preds) > 0:
         preds       = wrapjoin([ self.get_pstr(p) for p in e.preds ],
@@ -348,7 +414,7 @@ class _Stmt_Strs:
           base     += '^'+( f"({f.power})" if f.power.denominator != 1
                                            else str(f.power) )
         if len(f.idx) > 0:
-          idx       = [ f"i{b.ivar.name}:{b.range}" for b in f.idx ]
+          idx       = [ f"{b.ivar}:{b.range}" for b in f.idx ]
           base     += f"[{','.join(idx)}]"
         factors.append(base)
       if len(factors) == 0:
@@ -369,7 +435,7 @@ class _Stmt_Strs:
     elif eclass is NIR.Pow:
       base          = self.getstr(e.base, prec=30)
       power         = str(e.power)
-      if e.power.denominator == 1: power = f"({power})"
+      if e.power.denominator != 1: power = f"({power})"
       estr          = f"{base}^{power}"
       estr = f"({estr})" if prec >= 30 else estr
     elif eclass is NIR.BuiltIn:
@@ -381,22 +447,27 @@ class _Stmt_Strs:
     # if we decide this expression should be bound to a variable
     bind_this       = ( self._STMT.is_repeated(e) or bind_contract or
                         bind_expr or len(estr) > 65 )
+    if eclass is NIR.Var or eclass is NIR.Const:
+      bind_this     = False 
     if bind_this:
       varname       = self.get_new_var()
       self._expr_var[e] = varname
       # pad out to 8
-      vbuf          = varname+" "
+      vbuf          = varname+f" {self._STMT.n_uses(e)} "
       if len(vbuf) < 8: vbuf += (8-len(vbuf))*" "
+      #vbuf          = f"{varname}{{{id(e)}}}\n{vbuf}"
 
       self._stmts.append(f"{vbuf}= {estr}")
       estr          = varname
+    #else:
+    #  estr          = f"{{{id(e)}}}{estr}"
 
     return estr
 
   def get_pstr(self, p, prec=0):
     pclass    = type(p)
     if pclass is NIR.Alias:
-      return f"i{p.lvar.name}=i{p.rvar.name}"
+      return f"{p.lvar}={p.rvar}"
     elif pclass is NIR.Cmp:
       return f"{self.get_astr(p.eq)} {p.op} 0"
     elif pclass is NIR.Relation:
@@ -417,7 +488,7 @@ class _Stmt_Strs:
   def get_astr(self, a):
     offset          = [str(a.offset)] if a.offset != 0 else []
     terms           = [ ( ("" if t.coeff==1 else f"{t.coeff}*") +
-                          (f"i{t.ivar.name}" if t.ivar else "") +
+                          (f"{t.ivar}" if t.ivar else "") +
                           (str(t.size) if t.size else "") )
                        for t in a.terms ]
     terms           = offset + terms
@@ -425,7 +496,9 @@ class _Stmt_Strs:
 
 
 
-
+@extclass(NIR.expr)
+def __str__(e):
+  return str(_Stmt_Strs(e))
 
 # NEED a way to print out one of these things....
 @extclass(NIR.function)
@@ -437,7 +510,7 @@ def __str__(f):
   vstr    = "vars     "+ind.join(wrapjoin([ f"{str(vd.name)}:{vd.type}"
                                             for vd in f.vars ],
                                           col_width=colW, delimit=", "))
-  relnms  = [ str(rd.name) + ','.join([str(s) for s in rd.sizes])
+  relnms  = [ str(rd.name) + '(' + ','.join([str(s) for s in rd.sizes]) + ')'
               for rd in f.relations ]
   rstr    = "rels     "+ind.join(wrapjoin(relnms, col_width=colW,
                                                   delimit=", "))
@@ -456,6 +529,7 @@ from . import nir_simplify
 from .nir_convert import AST_to_NIR, NIR_to_AST
 
 
+from . import builtins as B 
 
 
 

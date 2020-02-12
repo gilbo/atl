@@ -26,7 +26,7 @@ class TestCatenary(unittest.TestCase, FunctionTestCase):
       EPS     = 1e-7
       return Let[
         disp,   Gen[k:2]( a[k] - b[k] ),
-        dist,   ATLmath.max( EPS, ATLmath.sqrt(Sum[k:2]( disp[k]*disp[k] )) )
+        dist,   ATLmath.sqrt(ATLmath.max( EPS, Sum[k:2]( disp[k]*disp[k] )))
       ]( K_spring * (dist - link_w) )
 
     E_spring  = Var('E_spring')
@@ -94,7 +94,7 @@ class TestCatenary(unittest.TestCase, FunctionTestCase):
     Dspring_N   = Var('Dspring_N')
     Dspring_i   = Var('Dspring_i')
 
-    E_catenary = Fun('E_catenary',(num,num))[
+    E_catenary = Fun('deriv_E_catenary',(num,num))[
       # number of nodes
       N,
       # parameters to energy model
@@ -145,7 +145,13 @@ class TestCatenary(unittest.TestCase, FunctionTestCase):
                     gen = (lambda self: self.uniform(-scale,scale))
                 )
 
-    return (N,  link_w, K_spring, gravity,  x,  dx)
+    return ((N,  link_w, K_spring, gravity,  x),  (dx,))
+    
+  def rand_deriv_inout(self):
+    indata, din   = self.rand_deriv_input()
+    w, h          = indata[0:2]
+    d_out         = self.rand.uniform(-2,2)
+    return (indata,din,d_out)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

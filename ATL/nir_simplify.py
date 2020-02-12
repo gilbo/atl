@@ -218,7 +218,7 @@ def __lt__(lhs,rhs):
   elif pclass is NIR.Cmp:
     return (lhs.op,id(lhs.eq)) < (rhs.op,id(rhs.eq))
   elif pclass is NIR.Relation:
-    return (lhs.name,lhs.args) < (rhs.name,rhs.args)
+    return (lhs.name,tuple(lhs.args)) < (rhs.name,tuple(rhs.args))
   elif pclass is NIR.Conj or pclass is NIR.Disj:
     return [ id(p) for p in lhs.preds ] < [ id(p) for p in rhs.preds ]
   else: assert False, "unexpected case"
@@ -293,7 +293,7 @@ def to_expr(t):
   if t.coeff == 0.0:
     return NIR.Const( 0.0, typ )
   else:
-    assert len(t.factors) > 0
+    #assert len(t.factors) > 0
     passthrough = ( t.coeff == 1.0 and
                     len(t.sum) == 0 and
                     len(t.factors) == 1 and
@@ -480,7 +480,7 @@ def simplify(e):
         factors.append(C_FAC( fe, idx, power ))
       # case where we merge the contractions...
       else:
-        #print(fe)
+        #print('merge contract', fe)
         remap.push()
         coeff  *= fe.coeff
         for g,i in zip(fe.gen_binds, idx):
@@ -498,6 +498,7 @@ def simplify(e):
   # in order to eliminate as many non-generation, non-factor
   # index variables as possible, shuffle all `sum` variables to the
   # end using a renaming pass
+  #print("MORE", preds)
   counter       = len(e.gen_binds) # reset counter
   remap.push()
   factors       = [ C_FAC(f.expr, fresh_binds(f.idx), f.power)
@@ -508,6 +509,7 @@ def simplify(e):
   remap.pop()
 
   # next, simplify the system of predicates with a possible early exit
+  #print("EARLY", preds)
   conj_pred     = NIR.Conj(preds).simplify()
 
   # extract index equivalence classes from the
@@ -567,8 +569,10 @@ def simplify(e):
 
   # sum indices
   old_sums,sums = sums, []
+  #print(' 8 8 sums', old_sums)
   for s in old_sums:
     sb          = NIR.idx_bind( NIR.ivar(counter), s.range )
+    sums.append(sb)
     # only remap the first occurence
     if remap.get(s.ivar) == None:
       remap.set(s.ivar, sb.ivar)
@@ -579,6 +583,7 @@ def simplify(e):
       id_preds.append(NIR.Alias(lookup,sb.ivar))
 
   #print("ID", id_preds)
+  #print("PRE", conj_pred)
   conj_pred     = NIR.Conj([ conj_pred.subst(remap) ] + id_preds).simplify()
   #print('FINAL PRED', conj_pred)
   remap.pop()
@@ -595,7 +600,9 @@ def simplify(e):
     preds       = [conj_pred]
 
   # constant detection
-  if (len(factors) == 0 and len(sums) == 0) or coeff == 0.0:
+  if ( (len(factors) == 0 and
+        len(sums) == 0 and
+        len(preds) == 0) or coeff == 0.0 ):
     e._simplified = NIR.Const( coeff, e.type )
     return e._simplified
 

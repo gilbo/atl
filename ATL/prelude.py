@@ -29,6 +29,8 @@ class Sym:
 
   def __hash__(self): return id(self)
 
+  def __lt__(lhs,rhs): return (lhs._nm,lhs._id) < (rhs._nm,rhs._id)
+
   def name(self):
     return self._nm
 
@@ -95,7 +97,7 @@ def wrapjoin(strs, col_width=79, delimit="" ):
   for s in strs:
     count    += len(s)
     # if we overran the line, first thing to do is to flush it
-    if count > col_width:
+    if len(line) > 0 and count > col_width:
       flushline()
       count  += len(s)
     else:

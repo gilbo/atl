@@ -50,28 +50,35 @@ class TestImgGradient(unittest.TestCase, FunctionTestCase):
     return img_grad
     
   def rand_input(self):
-    w, h      = self.rand.randint(10,20), self.rand.randint(10,20)
+    w, h      = self.rand.randint(4,10), self.rand.randint(4,10)
     img       = self.rand.rand_ndarray([h,w])
     return (w,h,img)
 
   def rand_deriv_input(self):
     w, h, img = self.rand_input()
     dimg      = self.rand.rand_ndarray([h,w])
-    return (w,h,img,dimg)
+    return ((w,h,img),(dimg,))
+
+  def rand_deriv_inout(self):
+    indata, din   = self.rand_deriv_input()
+    w, h          = indata[0:2]
+    d_out_x       = self.rand.rand_ndarray([h,w])
+    d_out_y       = self.rand.rand_ndarray([h,w])
+    return (indata,din,(d_out_x,d_out_y))
 
   def data_zeros(self):
     w, h      = 4, 4
-    img       = np.zeros([h,w])
-    dx_guess  = np.zeros([h,w])
-    dy_guess  = np.zeros([h,w])
+    img       = np.zeros([h,w],order='F')
+    dx_guess  = np.zeros([h,w],order='F')
+    dy_guess  = np.zeros([h,w],order='F')
     return (w,h,img), (dx_guess, dy_guess)
 
   def data_checker_2(self):
     # a small checker pattern
     w, h      = 8, 6
-    img       = np.zeros([h,w])
-    dx        = np.zeros([h,w])
-    dy        = np.zeros([h,w])
+    img       = np.zeros([h,w],order='F')
+    dx        = np.zeros([h,w],order='F')
+    dy        = np.zeros([h,w],order='F')
     for i in range(0,w):
       for j in range(0,h):
         imod  = (i//2) % 2

@@ -90,7 +90,7 @@ class LetLift:
 
     elif eclass is AST.Proj:
       stmts, arg    = self.lift(e.arg)
-      return stmts, AST.Proj(arg, e.idx, e.type, e.srcinfo)
+      return stmts, AST.Proj(e.idx, arg, e.type, e.srcinfo)
 
     elif eclass is AST.Gen or eclass is AST.Sum:
       # index variable name
@@ -149,10 +149,10 @@ class LetLift:
     elif eclass is AST.Indicate:
       pred          = self.lift_pred(e.pred)
       stmts, body   = self.lift(e.body)
-      wrap_stmts    = []
-      for s in stmts:
-        rhs         = AST.Indicate(pred, s.rhs, s.type, s.srcinfo)
-        wrap_stmts.append(AST.assign( s.name, s.type, rhs, s.srcinfo ))
+      wrap_stmts    = stmts#[]
+      #for s in stmts:
+      #  rhs         = AST.Indicate(pred, s.rhs, s.type, s.srcinfo)
+      #  wrap_stmts.append(AST.assign( s.name, s.type, rhs, s.srcinfo ))
       return wrap_stmts, AST.Indicate(pred, body, e.type, e.srcinfo)
 
     elif eclass is AST.Let:
@@ -214,7 +214,7 @@ class LetLift:
       return eclass( args, e.type, e.srcinfo )
 
     elif eclass is AST.Proj:
-      return AST.Proj( self.subst(env, e.arg), e.idx, e.type, e.srcinfo )
+      return AST.Proj( e.idx, self.subst(env, e.arg), e.type, e.srcinfo )
 
     elif eclass is AST.Gen or eclass is AST.Sum:
       assert env.get(e.name) is None, "expected safe symbol distinctions"
@@ -252,7 +252,8 @@ class LetLift:
       args  = [ self.subst(env, a) for a in e.args ]
       return AST.Relation( e.name, args, e.srcinfo )
 
-    elif eclass is AST.IdxAdd or eclass is AST.Conj or eclass is AST.Disj:
+    elif ( eclass is AST.IdxAdd or eclass is AST.IdxSub or
+           eclass is AST.Conj   or eclass is AST.Disj ):
       lhs   = self.subst(env, e.lhs)
       rhs   = self.subst(env, e.rhs)
       return eclass(lhs, rhs, e.srcinfo)
@@ -537,10 +538,10 @@ class TupleElimination:
       return i
     elif iclass is AST.IdxVar:
       return AST.IdxVar( self._get_var(i.name), i.srcinfo )
-    elif iclass is AST.IdxAdd:
+    elif iclass is AST.IdxAdd or iclass is AST.IdxSub:
       lhs         = self.elim_index(i.lhs)
       rhs         = self.elim_index(i.rhs)
-      return AST.IdxAdd( lhs, rhs, i.srcinfo )
+      return iclass( lhs, rhs, i.srcinfo )
     elif iclass is AST.IdxScale:
       idx         = self.elim_index(i.idx)
       return AST.IdxScale( i.coeff, idx, i.srcinfo )
@@ -586,6 +587,7 @@ class IndexDownGenUp:
   def __init__(self, ast):
 
     self._ctxt  = Context()
+    self._in_output = False
 
     if type(ast.body) is AST.Let:
       stmts     = []
@@ -593,11 +595,15 @@ class IndexDownGenUp:
         gens, r = self.downup(s.rhs)
         rhs     = self.wrap_gens(gens, r)
         stmts.append( AST.assign(s.name, rhs.type, rhs, s.srcinfo) )
+      self._in_output = True
       gens, e   = self.downup(ast.body.ret)
+      self._in_output = False
       ret       = self.wrap_gens(gens, e)
       body      = AST.Let(stmts, ret, ret.type, ast.body.srcinfo)
     else:
+      self._in_output = True
       gens, e   = self.downup(ast.body.ret)
+      self._in_output = False
       body      = self.wrap_gens(gens, e)
 
     self._ast   = AST.function( ast.name, ast.arg_order, ast.rettype,
@@ -617,12 +623,22 @@ class IndexDownGenUp:
     return e
   def wrap_access(self, e, idxstk):
     if len(idxstk) > 0:
-      typ = e.type
+      typ       = e.type
       for _ in idxstk:
-        typ = typ.type
-      return AST.Access( e, idxstk.copy(), typ, e.srcinfo )
+        typ     = typ.type
+      acc       = AST.Access( e, idxstk.copy(), typ, e.srcinfo )
     else:
-      return e
+      acc       = e
+
+    # hack to ensure that tensors on RHS get fully indexed
+    if not self._in_output and type(acc.type) is T.Tensor:
+      shape     = acc.type.shape()
+      igens     = [ (Sym(f"_{i}"),r) for i,r in enumerate(shape) ]
+      iexprs    = [ AST.IdxVar(i, null_srcinfo()) for i,r in igens ]
+      acc       = AST.Access( acc, iexprs, T.num, acc.srcinfo )
+      acc       = self.wrap_gens(igens, acc)
+
+    return acc
 
   def normalized(self):
     """
@@ -701,7 +717,9 @@ class IndexDownGenUp:
       args            = []
       typs            = []
       for a in e.args:
+        self._in_output = True
         gens, ea      = self.downup(a)
+        self._in_output = False
         ea            = self.wrap_gens(gens, ea)
         args.append( ea )
         typs.append( ea.type )
@@ -711,7 +729,8 @@ class IndexDownGenUp:
     elif eclass is AST.Proj:
       gens, arg       = self.downup(e.arg)
       assert len(gens) == 0, "projections should be on the inside"
-      return [], self.wrap_access( AST.Proj( e.idx, arg, e.type ), idxstk )
+      return [], self.wrap_access( AST.Proj( e.idx, arg,
+                                             e.type, e.srcinfo ), idxstk )
 
     elif eclass is AST.TensorLit:
       # Sometimes literals will compose scalar expressions.  In that
@@ -795,10 +814,10 @@ class IndexDownGenUp:
       if type(idx) is AST.IdxVar and idx.name == i.name:
         idx           = AST.IdxVar( i.name, i.srcinfo )
       return idx
-    elif iclass is AST.IdxAdd:
+    elif iclass is AST.IdxAdd or iclass is AST.IdxSub:
       lhs             = self.downup_index(i.lhs)
       rhs             = self.downup_index(i.rhs)
-      return AST.IdxAdd( lhs, rhs, i.srcinfo )
+      return iclass( lhs, rhs, i.srcinfo )
     elif iclass is AST.IdxScale:
       idx             = self.downup_index(i.idx)
       return AST.IdxScale( i.coeff, idx, i.srcinfo )
@@ -816,7 +835,7 @@ class IndexDownGenUp:
     elif pclass is AST.Conj or pclass is AST.Disj:
       lhs             = self.downup_pred(p.lhs)
       rhs             = self.downup_pred(p.rhs)
-      return eclass( lhs, rhs, p.srcinfo )
+      return pclass( lhs, rhs, p.srcinfo )
 
 
 # --------------------------------------------------------------------------- #

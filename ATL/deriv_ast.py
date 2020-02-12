@@ -41,7 +41,7 @@ class TotalDerivative:
       Parameters
       ==============
       ast : AST.function
-        function to normalize let-bindings within
+        function to take total derivative of
       dvars : { str : str }
         dict mapping strings corresponding to argument variables
         to strings corresponding to new differential argument variables.
@@ -92,7 +92,8 @@ class TotalDerivative:
     else:
       body      = AST.Tuple([ast.body, d_body], rettype, ast.body.srcinfo)
 
-    self._ast   = AST.function( ast.name, new_arg_ord, rettype,
+    name        = f"D_{ast.name}" if ast.name else None
+    self._ast   = AST.function( name, new_arg_ord, rettype,
                                 new_vars, ast.sizes, ast.relations,
                                 body, ast.srcinfo )
 

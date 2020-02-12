@@ -77,7 +77,8 @@ def argcheck_python_value(ctxt, typ, val, arg_id, is_output=False):
     if type(val) is not np.ndarray:
       raise TypeError(f"{pre} expected numpy.ndarray")
     elif val.dtype != float and val.dtype != np.float64:
-      raise TypeError(f"{pre} expected numpy.ndarray of 64-bit floats")
+      raise TypeError(f"{pre} expected numpy.ndarray of 64-bit floats, "
+                      f"but got numpy.ndarray of {val.dtype}")
     shape   = typ.shape()
     # substitute size values in...
     shape   = [ rng if type(rng) is int else ctxt.get(rng)
@@ -87,13 +88,12 @@ def argcheck_python_value(ctxt, typ, val, arg_id, is_output=False):
     if Ndim != val.ndim:
       raise TypeError(f"{pre} expected {Ndim} dimensions, got {val.ndim}")
     # check correspondence
-    for i,(td,npd) in enumerate(zip(shape,npshape)):
-      if td != npd:
-        raise TypeError(f"{pre} expected shape {shape}, got {list(npshape)}")
+    if tuple(shape) != tuple(npshape):
+      raise TypeError(f"{pre} expected shape {shape}, got {list(npshape)}")
     # stride packing check
     for i,(td,npd) in enumerate(zip(shape,npshape)):
       t_stride  = 1
-      for k in range(i+1,Ndim): t_stride *= shape[k]
+      for k in range(0,i): t_stride *= shape[k]
       assert val.strides[i] % val.itemsize == 0, 'sanity'
       np_stride = val.strides[i] // val.itemsize
       if t_stride != np_stride:
@@ -130,7 +130,7 @@ def argcheck_python_relation(ctxt, sizes, val, arg_id):
   # stride packing check
   for i,(td,npd) in enumerate(zip(shape,npshape)):
     t_stride  = 1
-    for k in range(i+1,Ndim): t_stride *= shape[k]
+    for k in range(0,i): t_stride *= shape[k]
     np_stride = val.strides[i]
     if t_stride != np_stride:
       raise TypeError(f"{pre} expected tight ndarray layout with "
@@ -148,7 +148,7 @@ def get_numpy_buffers(ctxt, typ):
 
   elif typ is T.num:
     # allocate a 1-entry array
-    return np.zeros([1])
+    return np.zeros([1], order='F')
 
   elif type(typ) is T.Tuple:
     args  = [ get_numpy_buffers(ctxt, t) for t in typ.types ]
@@ -159,7 +159,7 @@ def get_numpy_buffers(ctxt, typ):
     shape = typ.shape()
     shape = [ rng if type(rng) is int else ctxt.get(rng)
               for rng in shape ]
-    return np.zeros(shape)
+    return np.zeros(shape, order='F')
 
   else: assert False, "invalid type case"
 

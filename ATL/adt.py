@@ -243,8 +243,8 @@ def _add_memoization(mod,whitelist,ext_key):
     
     def create_listkey(f):
         i = 'i' if f.name != 'i' else 'ii'
-        return (f"tuple([ K['{f.type}']({i}) "
-                f"for {i} in {f.name} ]),")
+        return (f"tuple( K['{f.type}']({i}) "
+                f"for {i} in {f.name} ),")
     def create_optkey(f):
         return (f"None if {f.name} == None else "
                 f"K['{f.type}']({f.name}),")

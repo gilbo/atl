@@ -67,19 +67,25 @@ class TestBlur(unittest.TestCase, FunctionTestCase):
   def rand_deriv_input(self):
     w, h, img = self.rand_input()
     dimg      = self.rand.rand_ndarray([h,w])
-    return (w,h,img,dimg)
+    return ((w,h,img),(dimg,))
+
+  def rand_deriv_inout(self):
+    indata, din   = self.rand_deriv_input()
+    w, h          = indata[0:2]
+    d_out         = self.rand.rand_ndarray([h,w])
+    return (indata,din,d_out)
 
   def data_zeros(self):
     w, h      = 4, 4
-    indata    = (w,h,np.zeros([h,w]))
-    outdata   = np.zeros([h,w])
+    indata    = (w,h,np.zeros([h,w],order='F'))
+    outdata   = np.zeros([h,w],order='F')
     return indata, outdata
 
   def data_checker_2(self):
     # a small checker pattern
     w, h      = 8, 6
-    img       = np.zeros([h,w])
-    predict   = np.zeros([h,w])
+    img       = np.zeros([h,w],order='F')
+    predict   = np.zeros([h,w],order='F')
     for i in range(0,w):
       for j in range(0,h):
         imod  = (i//2) % 2

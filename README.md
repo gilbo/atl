@@ -1,9 +1,11 @@
 
 # A Tensor Language
 
-_(What should this be called?  Iver after Iverson?  ATL after APL?  Ivar for index-variable?  Something else entirely?)_
-
 This is a working space for sketching a tensor language.  I am not placing a high degree of stress on portability right now.  Please schedule time with me to iron out various portability issues if you want to get this working on Linux or Windows, your machine etc.
+
+## Dependencies
+
+These are mostly documented (in simple form) in `requirements.txt`.  However, note that the `pysmt` library requires an SMT solver to be installed on the machine external to the python dependency management.  I have been using Z3, though you're welcome to see if you can get another solver working.  To debug this please see pySMT's own documentation; the simplest path seems to make use of a command line tool called `pysmt-install`.
 
 
 ## Early Notebooks
@@ -25,8 +27,6 @@ I will now briefly gloss each of these.
 ### How-to Represent IRs and Memoization of IRs
 
 These notebooks generated `src/adt.py`, which is a tiny DSL designed to help compiler writers create type-checked Python class hierarchies out of descriptions that look like BNF grammars.  The grammar language syntax is called ASDL, from the Princeton Zephyr project.  It is used by the standard Python compiler to document Python's own IR.
-
-There is probably a `pip` dependency here that isn't well documented.  Can you help teach me how to create an executable file of Python package dependencies?
 
 
 ### A Tensor Language v0

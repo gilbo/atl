@@ -449,11 +449,14 @@ for opnm,binop in [
     ('sub','-'),
     ('mul','*'),
     ('div','/'),
+    ('and','&&'),
+    ('or','||'),
     ('eq', '=='),
+    ('neq','!='),
     ('lt','<'),
     ('gt','>'),
-    ('lte','<='),
-    ('gte','>='),]:
+    ('le','<='),
+    ('ge','>='),]:
         HWGen.fun(f"hwrap_{opnm}",
             [('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"\n"+
             "return _to_E(new Halide::Expr("+
@@ -470,6 +473,19 @@ HWGen.fun("hwrap_min",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
 HWGen.fun("hwrap_max",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
     return _to_E(new Halide::Expr(Halide::max(*_from_E(lhs),
                                               *_from_E(rhs))));""")
+# math library unary functions
+for nm in ['sin','cos','tan','asin','acos','atan',
+           'log','exp','sqrt']:
+    HWGen.fun(f"hwrap_{nm}",[('arg',hw_expr_t)],hw_expr_t,f"""
+    return _to_E(new Halide::Expr(Halide::{nm}(*_from_E(arg))));""")
+# math library binary functions
+HWGen.fun("whrap_pow",[('base',hw_expr_t),('exp',hw_expr_t)],hw_expr_t,"""
+    return _to_E(new Halide::Expr(Halide::pow(*_from_E(base),
+                                              *_from_E(exp))));""")
+HWGen.fun("hwrap_atan2",[('y',hw_expr_t),('x',hw_expr_t)],hw_expr_t,"""
+    return _to_E(new Halide::Expr(Halide::atan2(*_from_E(y),
+                                                *_from_E(x))));""")
+
 # func access
 HWGen.fun("hwrap_access_func",
     [('f',hw_func_t),
@@ -483,7 +499,6 @@ HWGen.fun("hwrap_access_func",
 
 # big sum
 HWGen.fun("hwrap_big_sum",[('r',hw_rdom_t),('e',hw_expr_t)],hw_expr_t,"""
-    std::cout << "TEST: BIG SUM" << std::endl;
     return _to_E(new Halide::Expr(Halide::sum( *_from_R(r),
                                                *_from_E(e) )));""")
 

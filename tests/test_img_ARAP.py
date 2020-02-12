@@ -191,8 +191,14 @@ class TestImgARAP(unittest.TestCase, FunctionTestCase):
     dOffsets  = self.rand.rand_ndarray([W,H,2])
     dAngle    = self.rand.rand_ndarray([W,H])
 
-    return (W,H, w_fit,w_reg, Offsets,Angle,
-            UrShape,Constraints, C_valid,Mask, dOffsets,dAngle)
+    return ((W,H, w_fit,w_reg, Offsets,Angle,
+                  UrShape,Constraints, C_valid,Mask), (dOffsets,dAngle))
+
+  def rand_deriv_inout(self):
+    indata, din   = self.rand_deriv_input()
+    W, H          = indata[0:2]
+    d_out         = self.rand.uniform(-2,2)
+    return (indata,din,d_out)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

@@ -10,9 +10,15 @@ import numpy as np
 from .py_type_values import *
 
 from .interpreter import Interpret
+from .ast_to_halide import Compile as HCompile
+from .perf_analysis import Analysis
 from .norm_ast    import LetLift, TupleElimination, IndexDownGenUp
 from .deriv_ast   import TotalDerivative
 from .norm_ir     import AST_to_NIR, NIR_to_AST
+from .nir_deriv   import NIR_Deriv
+
+
+from .checks      import TC_Lite
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -134,8 +140,30 @@ class Function:
     Interpret(self._ast, vs, szs, rels, output)
     return self._pack_return_scalars(self._ast.rettype, output)
 
+  def jit_exec(self, *args, **kwargs):
+    vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
+    if not hasattr(self, '_jit_halide_compiled'):
+      #print(self._prenorm_ast())
+      self._jit_halide_compiled = HCompile(self._prenorm_ast())
+    self._jit_halide_compiled(vs, szs, rels, output)
+    return self._pack_return_scalars(self._ast.rettype, output)
+
   def __call__(self, *args, **kwargs):
-    return self.interpret(*args,**kwargs)
+    return self.jit_exec(*args,**kwargs)
+    #return self.interpret(*args,**kwargs)
+
+  def perf_counts(self, *args, **kwargs):
+    vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
+    Analysis(self._ast, vs, szs, rels)
+
+  def _prenorm_ast(self):
+    if not hasattr(self, '_prenorm_ast_cached'):
+      ast           = self._ast
+      ast           = LetLift(self._ast).normalized()
+      ast           = TupleElimination(ast).normalized()
+      ast           = IndexDownGenUp(ast).normalized()
+      self._prenorm_ast_cached = ast
+    return self._prenorm_ast_cached
 
   def _unpack_deriv_args(self, *args, **kwargs):
     """ use the named parameter 'output' to name the output
@@ -272,5 +300,29 @@ class Function:
     normed          = self._TEST_PreNormalization()
     nir             = AST_to_NIR(normed._ast,use_simplify=False).result()
     ast             = NIR_to_AST(nir).result()
+    TC_Lite(ast)
+    return Function(ast, _do_bound_check=False)
+
+  def _TEST_NIR_Roundtrip_YesSimp(self):
+    normed          = self._TEST_PreNormalization()
+    nir             = AST_to_NIR(normed._ast,use_simplify=True).result()
+    ast             = NIR_to_AST(nir).result()
+    return Function(ast, _do_bound_check=False)
+
+  def _TEST_NIR_Deriv(self,*args,**kwargs):
+    dvars, output   = self._unpack_deriv_args(*args,**kwargs)
+    normed          = self._TEST_PreNormalization()
+    nir             = AST_to_NIR(normed._ast,use_simplify=True).result()
+    nir             = NIR_Deriv(nir, dvars).get_deriv()
+    ast             = NIR_to_AST(nir).result()
+    return Function(ast, _do_bound_check=False)
+
+  def _TEST_NIR_Adjoint(self,*args,**kwargs):
+    dvars, output   = self._unpack_deriv_args(*args,**kwargs)
+    normed          = self._TEST_PreNormalization()
+    nir             = AST_to_NIR(normed._ast,use_simplify=True).result()
+    nir             = NIR_Deriv(nir, dvars).get_adjoint()
+    ast             = NIR_to_AST(nir).result()
+    print(ast)
     return Function(ast, _do_bound_check=False)
 

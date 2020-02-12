@@ -20,6 +20,9 @@ _binops = {
     "-":    True,
     "*":    True,
     "/":    True,
+    "and":  True,
+    "or":   True,
+    "!=":   True,
     "==":   True,
     "<":    True,
     ">":    True,
@@ -57,8 +60,11 @@ module HIR {
            | Erdom     ( rdom r )
            | Eparam    ( param p )
            | BinOp     ( op op, expr lhs, expr rhs )
+           | MathFn1   ( string name, expr arg )
            | Min       ( expr lhs, expr rhs )
            | Max       ( expr lhs, expr rhs )
+           | Pow       ( expr base, expr exp )
+           | ATan2     ( expr y, expr x )
            | Select    ( expr pred, expr lhs, expr rhs )
            | FAccess   ( func f, expr* args )
            | BigSum    ( rdom r, expr body )
@@ -66,7 +72,7 @@ module HIR {
     stmt   = PureDef   ( func f, var* args, expr rhs )
            | Update    ( func f, expr* args, expr rhs )
     
-    range  = Range ( expr lo, expr hi )
+    range  = Range ( expr lo, expr extent )
     type   = Type  ( typbase base, int lanes )
 }
 """, {
@@ -96,8 +102,8 @@ def __str__(t):
 @extclass(HIR.Var)
 def __str__(v): return v.name
 @extclass(HIR.RDom)
-def __str____(r):
-    bds = ']['.join([ f"{rg.lo},{rg.hi}" for rg in r.bounds ])
+def __str__(r):
+    bds = ']['.join([ f"{rg.lo},{rg.extent}" for rg in r.bounds ])
     return f"{r.name}[{bds}]"
 @extclass(HIR.Param)
 def __str__(p): return f"{p.name} : {p.typ}"
@@ -109,15 +115,18 @@ def __str__(f):
     elif type(f) is HIR.ImgFunc: return f.img.name
 
 _HIR_op_prec = {
-    "+" : 30,
-    "-" : 30,
-    "*" : 40,
-    "/" : 40,
-    "<" : 20,
-    ">" : 20,
-    "<=" : 20,
-    ">=" : 20,
-    "==" : 10,
+    "+"   : 30,
+    "-"   : 30,
+    "*"   : 40,
+    "/"   : 40,
+    "<"   : 20,
+    ">"   : 20,
+    "<="  : 20,
+    ">="  : 20,
+    "=="  : 10,
+    "!="  : 10,
+    "and" : 5,
+    "or"  : 5,
 }
 @extclass(HIR.expr)
 def _str_rep(e,prec=0):
@@ -135,9 +144,15 @@ def _str_rep(e,prec=0):
         op_prec = _HIR_op_prec[e.op]
         s = (f"{e.lhs._str_rep(op_prec)} {e.op} {e.rhs._str_rep(op_prec+1)}")
         if prec > op_prec: s = f"({s})"
+    elif eclass is HIR.MathFn1:
+        s = f"{e.name}({e.arg})"
     elif eclass is HIR.Min or eclass is HIR.Max:
         fname = "Min" if eclass is HIR.Min else "Max"
         s = f"{fname}({e.lhs},{e.rhs})"
+    elif eclass is HIR.Pow:
+        s = f"pow({e.base},{e.exp})"
+    elif eclass is HIR.ATan2:
+        s = f"atan2({e.y},{e.x})"
     elif eclass is HIR.Select:
         s = f"select({e.pred},{e.lhs},{e.rhs})"
     elif eclass is HIR.FAccess:
@@ -197,7 +212,10 @@ def _ndarray_to_halide_buf(a):
         # remapping to prevent some pointless errors
         if t is float:
             t = np.float64 if (sys.float_info.max_exp == 1024) else np.float32
-        if t is int:   t = np.int32
+        if t is int:
+            t = np.int32
+        if t is bool or t is np.bool_:
+            t = np.uint8
         # main case switch
         if   t is np.int8:    return halide_type_t(C.type_int,8,1)
         elif t is np.int16:   return halide_type_t(C.type_int,16,1)
@@ -298,7 +316,7 @@ class _HIR_Compilation:
         bds     = []
         for rng in r.bounds:
             bds.append( self.get_expr(rng.lo) )
-            bds.append( self.get_expr(rng.hi) )
+            bds.append( self.get_expr(rng.extent) )
         c_bds   = ((n_bd * 2) * hw_expr_t)(*bds)
         rd = C.hwrap_new_rdom(bytes(r.name,'utf-8'),
                               n_bd, c_bds)
@@ -324,17 +342,36 @@ class _HIR_Compilation:
             elif e.op == "-":   op_f = C.hwrap_sub
             elif e.op == "*":   op_f = C.hwrap_mul
             elif e.op == "/":   op_f = C.hwrap_div
+            elif e.op == "and": op_f = C.hwrap_and
+            elif e.op == "or":  op_f = C.hwrap_or
             elif e.op == "==":  op_f = C.hwrap_eq
+            elif e.op == "!=":  op_f = C.hwrap_neq
             elif e.op == "<":   op_f = C.hwrap_lt
             elif e.op == ">":   op_f = C.hwrap_gt
             elif e.op == "<=":  op_f = C.hwrap_le
             elif e.op == ">=":  op_f = C.hwrap_ge
             else: assert False, f"unrecognized operator: {e.op}"
             ee  = op_f(self.get_expr(e.lhs), self.get_expr(e.rhs))
+        elif eclass is HIR.MathFn1:
+            if   e.name == "sin":   fn = C.hwrap_sin
+            elif e.name == "cos":   fn = C.hwrap_cos
+            elif e.name == "tan":   fn = C.hwrap_tan
+            elif e.name == "asin":  fn = C.hwrap_asin
+            elif e.name == "acos":  fn = C.hwrap_acos
+            elif e.name == "atan":  fn = C.hwrap_atan
+            elif e.name == "log":   fn = C.hwrap_log
+            elif e.name == "exp":   fn = C.hwrap_exp
+            elif e.name == "sqrt":  fn = C.hwrap_sqrt
+            else: assert False, f"unrecognized math function: {e.name}"
+            ee  = fn(self.get_expr(e.arg))
         elif eclass is HIR.Min:
             ee  = C.hwrap_min(self.get_expr(e.lhs), self.get_expr(e.rhs))
         elif eclass is HIR.Max:
             ee  = C.hwrap_max(self.get_expr(e.lhs), self.get_expr(e.rhs))
+        elif eclass is HIR.Pow:
+            ee  = C.hwrap_pow(self.get_expr(e.base), self.get_expr(e.exp))
+        elif eclass is HIR.ATan2:
+            ee  = C.hwrap_atan2(self.get_expr(e.y), self.get_expr(e.x))
         elif eclass is HIR.Select:
             ee  = C.hwrap_select(self.get_expr(e.pred),
                                  self.get_expr(e.lhs),

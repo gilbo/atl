@@ -268,6 +268,8 @@ class BoundsExtraction:
       return _alift_(e.name)
     elif eclass is AST.IdxAdd:
       return self.index(e.lhs) + self.index(e.rhs)
+    elif eclass is AST.IdxSub:
+      return self.index(e.lhs) - self.index(e.rhs)
     elif eclass is AST.IdxScale:
       return e.coeff * self.index(e.idx)
     else: assert False, "unexpected case"

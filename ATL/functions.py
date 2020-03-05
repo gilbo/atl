@@ -323,6 +323,6 @@ class Function:
     nir             = AST_to_NIR(normed._ast,use_simplify=True).result()
     nir             = NIR_Deriv(nir, dvars).get_adjoint()
     ast             = NIR_to_AST(nir).result()
-    print(ast)
+    #print(ast)
     return Function(ast, _do_bound_check=False)
 

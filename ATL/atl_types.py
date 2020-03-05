@@ -55,7 +55,7 @@ def __str__(t):
       if t.labels is None:
         entries = ','.join([ str(st) for st in t.types ])
       else:
-        entries = ','.join([ f"{nm}={st}"
+        entries = ','.join([ f"{nm}:{st}"
                              for nm,st in zip(t.labels.names,t.types) ])
       t._str_cached = f"({entries})"
     elif type(t) is Tensor:
@@ -161,6 +161,24 @@ def SoA_transform(t,rngs=[]):
     return Tuple( t.labels, subs )
   else: assert False, "impossible type case"
 del SoA_transform
+
+# --------------------------------------------------------------------------- #
+# Type remapping
+
+@extclass(_Types.type)
+def remap(t,rng_sub):
+  tclass  = type(t)
+  if t is num or t is error:
+    return t
+  elif tclass is Tensor:
+    rng   = t.range
+    if type(rng) is Sym and rng in rng_sub:
+      rng = rng_sub[rng]
+    return Tensor(rng, t.type.remap(rng_sub))
+  elif tclass is Tuple:
+    return Tuple(t.labels, [ subt.remap(rng_sub) for subt in t.types ])
+  else: assert False, "impossible type case"
+del remap
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

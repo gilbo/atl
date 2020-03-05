@@ -18,9 +18,13 @@ from .quote_api import (
   Fun,
   ATLmath,
 )
+num = Type(float)
+
+from .parse_pyast import func, macro
 
 __all__ = [
   "Function",
+  #
   "Var",
   "IVar",
   "Relation",
@@ -34,5 +38,11 @@ __all__ = [
   "IExpr",
   "Pred",
   "Fun",
+  #
   "ATLmath",
+  #
+  "num",
+  #
+  "func",
+  "macro",
 ]

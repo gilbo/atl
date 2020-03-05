@@ -1,7 +1,9 @@
+from __future__ import annotations
 
 import unittest
 from .function_tests import FunctionTestCase
-from ATL import *
+import ATL
+from ATL import num
 
 import numpy as np
 
@@ -11,53 +13,39 @@ import numpy as np
 class TestBlur(unittest.TestCase, FunctionTestCase):
 
   def gen_func(self):
-    num       = Type(float)
-    w, h      = Size('w'), Size('h')
-    i, j      = IVar('i'), IVar('j')
-    img       = Var('img')
-    blur_x    = Var('blur_x')
-    blur_y    = Var('blur_y')
-
-    blur = Fun('blur')[ w, h, img : num[h,w] ]( Let[
-      blur_x, Gen[j:h,i:w]( 0.25*( (i-1 >= 0)*img[j,i-1]
+    @ATL.func
+    def blur( w : size, h : size, img : num[h,w] ):
+      blur_x[j:h,i:w]   = 0.25 * ( (i-1 >= 0)*img[j,i-1]
                                   +         2*img[j,i  ]
-                                  + (i+1 < w)*img[j,i+1] ) ),
-      blur_y, Gen[j:h,i:w]( 0.25*( (j-1 >= 0)*blur_x[j-1,i]
+                                  + (i+1 < w)*img[j,i+1] )
+      blur_y[j:h,i:w]   = 0.25 * ( (j-1 >= 0)*blur_x[j-1,i]
                                   +         2*blur_x[j  ,i]
-                                  + (j+1 < h)*blur_x[j+1,i] ) ),
-    ]( blur_y ))
+                                  + (j+1 < h)*blur_x[j+1,i] )
+      return blur_y
+
     return blur
 
   def gen_deriv_sig(self):
     return { 'img' : 'dimg' }
 
   def gen_deriv(self):
-    num       = Type(float)
-    w, h      = Size('w'), Size('h')
-    i, j      = IVar('i'), IVar('j')
-    img       = Var('img')
-    blur_x    = Var('blur_x')
-    blur_y    = Var('blur_y')
-    dimg      = Var('dimg')
-    dblur_x   = Var('dblur_x')
-    dblur_y   = Var('dblur_y')
-
-    blur = Fun('dblur')[ w, h, img : num[h,w],
-                              dimg : num[h,w] ]( Let[
-      blur_x, Gen[j:h,i:w]( 0.25*( (i-1 >= 0)*img[j,i-1]
+    @ATL.func
+    def dblur( w : size, h : size, img : num[h,w], dimg : num[h,w] ):
+      blur_x[j:h,i:w]   = 0.25 * ( (i-1 >= 0)*img[j,i-1]
                                   +         2*img[j,i  ]
-                                  + (i+1 < w)*img[j,i+1] ) ),
-      dblur_x, Gen[j:h,i:w]( 0.25*( (i-1 >= 0)*dimg[j,i-1]
-                                   +         2*dimg[j,i  ]
-                                   + (i+1 < w)*dimg[j,i+1] ) ),
-      blur_y, Gen[j:h,i:w]( 0.25*( (j-1 >= 0)*blur_x[j-1,i]
+                                  + (i+1 < w)*img[j,i+1] )
+      dblur_x[j:h,i:w]  = 0.25 * ( (i-1 >= 0)*dimg[j,i-1]
+                                  +         2*dimg[j,i  ]
+                                  + (i+1 < w)*dimg[j,i+1] )
+      blur_y[j:h,i:w]   = 0.25 * ( (j-1 >= 0)*blur_x[j-1,i]
                                   +         2*blur_x[j  ,i]
-                                  + (j+1 < h)*blur_x[j+1,i] ) ),
-      dblur_y, Gen[j:h,i:w]( 0.25*( (j-1 >= 0)*dblur_x[j-1,i]
-                                   +         2*dblur_x[j  ,i]
-                                   + (j+1 < h)*dblur_x[j+1,i] ) ),
-    ]( (blur_y, dblur_y) ))
-    return blur
+                                  + (j+1 < h)*blur_x[j+1,i] )
+      dblur_y[j:h,i:w]  = 0.25 * ( (j-1 >= 0)*dblur_x[j-1,i]
+                                  +         2*dblur_x[j  ,i]
+                                  + (j+1 < h)*dblur_x[j+1,i] )
+      return (blur_y, dblur_y)
+
+    return dblur
     
   def rand_input(self):
     w, h      = self.rand.randint(10,20), self.rand.randint(10,20)

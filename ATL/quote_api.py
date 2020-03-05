@@ -220,8 +220,8 @@ class _LetOpClass:
 class _LetBlock:
   def __init__(self,stmts):
     self._stmts = stmts
-  def __call__(self,expr):
-    srcinfo = get_srcinfo(2)
+  def __call__(self,expr,srcinfo=None):
+    srcinfo = srcinfo or get_srcinfo(2)
     ret     = Expr(expr)._ast
     return Expr(UST.Let( self._stmts, ret, srcinfo ))
 
@@ -258,23 +258,23 @@ class ATLmath:
 
 class Expr:
   """ Generic Expression """
-  def __init__(self,obj):
+  def __init__(self,obj,srcinfo=None):
     typ = type(obj)
     if   typ is Var:
-      self._ast = UST.Var(obj._name, obj._srcinfo)
+      self._ast = UST.Var(obj._name, srcinfo or obj._srcinfo)
     elif typ is float or typ is int:
-      self._ast = UST.Const(float(obj), null_srcinfo())
+      self._ast = UST.Const(float(obj), srcinfo or null_srcinfo())
     elif typ is tuple:
       if len(obj) < 1:
         raise TypeError("tuple expressions must have at least one entry")
       args = list(obj)
-      self._ast = Tuple(*args,srcinfo=get_srcinfo(2))._ast
+      self._ast = Tuple(*args,srcinfo=srcinfo or get_srcinfo(2))._ast
     elif typ is list:
       if len(obj) < 1:
         raise TypeError(f'list/tensor expressions '
                         f'must have at least one entry')
       args = list(obj)
-      self._ast = Tensor(*args,srcinfo=get_srcinfo(2))._ast
+      self._ast = Tensor(*args,srcinfo=srcinfo or get_srcinfo(2))._ast
     elif typ is Expr:
       self._ast = obj._ast
     elif isinstance(obj,UST.expr):
@@ -332,14 +332,14 @@ class Expr:
 
 class IExpr:
   """ Index Expressions """
-  def __init__(self,obj):
+  def __init__(self,obj,srcinfo=None):
     typ = type(obj)
     if   typ is IVar:
-      self._ast = UST.IdxVar(obj._name, obj._srcinfo)
+      self._ast = UST.IdxVar(obj._name, srcinfo or obj._srcinfo)
     elif typ is Size:
-      self._ast = UST.IdxSize(obj._name, obj._srcinfo)
+      self._ast = UST.IdxSize(obj._name, srcinfo or obj._srcinfo)
     elif typ is int:
-      self._ast = UST.IdxConst(obj, null_srcinfo())
+      self._ast = UST.IdxConst(obj, srcinfo or null_srcinfo())
     elif typ is IExpr:
       self._ast = obj._ast
     elif isinstance(obj,UST.index):

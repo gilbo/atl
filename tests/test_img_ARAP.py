@@ -1,7 +1,9 @@
+from __future__ import annotations
 
 import unittest
 from .function_tests import FunctionTestCase
-from ATL import *
+import ATL
+from ATL import num, Type
 
 import numpy as np
 
@@ -11,40 +13,25 @@ import numpy as np
 class TestImgARAP(unittest.TestCase, FunctionTestCase):
 
   def gen_func(self):
-    num       = Type(float)
-    W, H      = Size('W'), Size('H')
-    w_fit, w_reg  = Var('w_fit'), Var('w_reg')
-    Offsets       = Var('Offsets')
-    Angle         = Var('Angle')
-    UrShape       = Var('UrShape')
-    Constraints   = Var('Constraints')
-    C_valid       = Relation('C_valid')
-    Mask          = Relation('Mask')
-    i, j      = IVar('i'), IVar('j')
-    k         = IVar('k')
+    @ATL.func
+    def Rot2D( ang : num, v2 : num[2] ):
+      s   = sin(ang)
+      c   = cos(ang)
+      return [ c*v2[0] - s*v2[1],
+               s*v2[0] + c*v2[1] ]
 
-    def Rot2D( ang, v2 ):
-      s, c  = Var('s'), Var('c')
-      return Let[ s, ATLmath.sin( ang ),
-                  c, ATLmath.cos( ang ),
-                ]([  c * v2[0] - s * v2[1],
-                     s * v2[0] + c * v2[1]  ])
+    @ATL.macro
+    def regular(i,j,di,dj,P):
+      d_off[k:2]  = P.Offsets[i,j,k] - P.Offsets[i+di,j+dj,k]
+      d_ur[k:2]   = P.UrShape[i,j,k] - P.UrShape[i+di,j+dj,k]
+      rot         = Rot2D( P.Angle[i,j], d_ur )
+      diff[k:2]   = d_off[k] - rot[k]
+      return Sum[k:2]( diff[k]*diff[k] )
 
-    def regular(i,j,di,dj):
-      d_off, d_ur   = Var('d_off'), Var('d_ur')
-      rot, diff     = Var('rot'), Var('diff')
-      return Let[ d_off,  Gen[k:2]( Offsets[i,j,k] - Offsets[i+di,j+dj,k] ),
-                  d_ur,   Gen[k:2]( UrShape[i,j,k] - UrShape[i+di,j+dj,k] ),
-                  rot,    Rot2D( Angle[i,j], d_ur ),
-                  diff,   Gen[k:2]( d_off[k] - rot[k] ),
-             ]( Sum[k:2]( diff[k]*diff[k] ) )
-
-    E_reg, E_fit  = Var('E_reg'), Var('E_fit')
-    OC            = Var('OC')
-
-    E_ARAP = Fun('E_ARAP',num)[
+    @ATL.func
+    def E_ARAP(
       # image size
-      W, H,
+      W : size, H : size,
       # energy term weights
       w_fit : num, w_reg : num,
       # unknown vector fields
@@ -52,73 +39,49 @@ class TestImgARAP(unittest.TestCase, FunctionTestCase):
       # input (known) vector fields
       UrShape : num[W,H,2], Constraints : num[W,H,2],
       # masking relations
-      C_valid : (W,H), Mask : (W,H),
-    ](
-      Sum[i:W,j:H]( Mask(i,j) * Let[
-        E_reg, ( (i+1<W) * (Mask(i+1,j) * regular(i,j, 1, 0)) +
-                (i-1>=0) * (Mask(i-1,j) * regular(i,j,-1, 0)) +
-                 (j+1<H) * (Mask(i,j+1) * regular(i,j, 0, 1)) +
-                (j-1>=0) * (Mask(i,j-1) * regular(i,j, 0,-1)) ),
-        OC,     Gen[k:2]( Offsets[i,j,k] - Constraints[i,j,k] ),
-        E_fit,  Sum[k:2]( OC[k]*OC[k] ),
-      ](  w_fit * C_valid(i,j) * E_fit + w_reg * E_reg  ))
-    )
-
+      C_valid : (W,H), Mask : (W,H)
+    ):
+      P               = { Offsets:Offsets, UrShape:UrShape, Angle:Angle }
+      E_reg[i:W,j:H]  = ( (i+1<W) * (Mask(i+1,j) * regular(i,j, 1, 0, P)) +
+                         (i-1>=0) * (Mask(i-1,j) * regular(i,j,-1, 0, P)) +
+                          (j+1<H) * (Mask(i,j+1) * regular(i,j, 0, 1, P)) +
+                         (j-1>=0) * (Mask(i,j-1) * regular(i,j, 0,-1, P)) )
+      OC[i:W,j:H,k:2] = Offsets[i,j,k] - Constraints[i,j,k]
+      E_fit[i:W,j:H]  = Sum[k:2]( OC[i,j,k]*OC[i,j,k] )
+      return Sum[i:W,j:H](Mask(i,j)*(
+                            w_fit * (C_valid(i,j) * E_fit[i,j])
+                          + w_reg * E_reg[i,j] ))
+    
     return E_ARAP
 
   def gen_deriv_sig(self):
     return { 'Offsets' : True, 'Angle' : True }
 
   def gen_deriv(self):
-    num       = Type(float)
-    W, H      = Size('W'), Size('H')
-    w_fit, w_reg  = Var('w_fit'), Var('w_reg')
-    Offsets       = Var('Offsets')
-    Angle         = Var('Angle')
-    UrShape       = Var('UrShape')
-    Constraints   = Var('Constraints')
-    C_valid       = Relation('C_valid')
-    Mask          = Relation('Mask')
-    i, j      = IVar('i'), IVar('j')
-    k         = IVar('k')
+    @ATL.func
+    def DRot2D( ang : num, v2 : num[2], dang : num ):
+      s     = sin(ang)
+      c     = cos(ang)
+      scv   = s*v2[0] + c*v2[1]
+      cnsv  = c*v2[0] - s*v2[1]
+      return ([ cnsv, scv ],
+              [ -1.0 * scv * dang, cnsv * dang ])
 
-    dOffsets      = Var('dOffsets')
-    dAngle        = Var('dAngle')
+    @ATL.macro
+    def Dregular(i,j,di,dj,P):
+      d_off[k:2]  = P.Offsets[i,j,k]  - P.Offsets[i+di,j+dj,k]
+      dd_off[k:2] = P.dOffsets[i,j,k] - P.dOffsets[i+di,j+dj,k]
+      d_ur[k:2]   = P.UrShape[i,j,k]  - P.UrShape[i+di,j+dj,k]
+      Drot        = DRot2D( P.Angle[i,j], d_ur, P.dAngle[i,j] )
+      diff[k:2]   = d_off[k]  - (Drot._0)[k]
+      ddiff[k:2]  = dd_off[k] - (Drot._1)[k]
+      return ( Sum[k:2]( diff[k]*diff[k] ),
+               Sum[k:2]( 2*diff[k]*ddiff[k] ) )
 
-    def DRot2D( ang, v2, dang ):
-      s, c  = Var('s'), Var('c')
-      scv   = Var('scv')
-      cnsv  = Var('cnsv')
-      return Let[ s,    ATLmath.sin( ang ),
-                  c,    ATLmath.cos( ang ),
-                  scv,  s * v2[0] + c * v2[1],
-                  cnsv, c * v2[0] - s * v2[1],
-                ](([  cnsv, scv  ],
-                   [  -scv * dang, cnsv * dang  ]))
-
-    def Dregular(i,j,di,dj):
-      d_off, d_ur   = Var('d_off'),  Var('d_ur')
-      dd_off        = Var('dd_off')
-      Drot, diff    = Var('Drot'), Var('diff')
-      ddiff         = Var('ddiff')
-      return Let[ d_off,  Gen[k:2]( Offsets[i,j,k]  - Offsets[i+di,j+dj,k] ),
-                  dd_off, Gen[k:2]( dOffsets[i,j,k] - dOffsets[i+di,j+dj,k] ),
-                  d_ur,   Gen[k:2]( UrShape[i,j,k]  - UrShape[i+di,j+dj,k]  ),
-                  Drot,   DRot2D( Angle[i,j], d_ur, dAngle[i,j] ),
-                  diff,   Gen[k:2]( d_off[k]  - Drot.proj(0)[k] ),
-                  ddiff,  Gen[k:2]( dd_off[k] - Drot.proj(1)[k] ),
-              ](( Sum[k:2]( diff[k]*diff[k] ),
-                  Sum[k:2]( 2*diff[k]*ddiff[k] ) ))
-
-    E_reg, E_fit    = Var('E_reg'),  Var('E_fit')
-    DE_reg, dE_fit  = Var('DE_reg'), Var('dE_fit')
-    OC, dOC         = Var('OC'), Var('dOC')
-
-    AoS             = Var('AoS')
-
-    DE_ARAP = Fun('DE_ARAP',(num,num))[
+    @ATL.func
+    def DE_ARAP(
       # image size
-      W, H,
+      W : size, H : size,
       # energy term weights
       w_fit : num, w_reg : num,
       # unknown vector fields
@@ -128,21 +91,25 @@ class TestImgARAP(unittest.TestCase, FunctionTestCase):
       # masking relations
       C_valid : (W,H), Mask : (W,H),
       # derivatives
-      dOffsets : num[W,H,2], dAngle : num[W,H],
-    ](Sum[i:W,j:H]( Mask(i,j) * Let[
-        DE_reg, ( (i+1<W) * (Mask(i+1,j) * Dregular(i,j, 1, 0)) +
-                 (i-1>=0) * (Mask(i-1,j) * Dregular(i,j,-1, 0)) +
-                  (j+1<H) * (Mask(i,j+1) * Dregular(i,j, 0, 1)) +
-                 (j-1>=0) * (Mask(i,j-1) * Dregular(i,j, 0,-1)) ),
-        OC,     Gen[k:2]( Offsets[i,j,k] - Constraints[i,j,k] ),
-        dOC,    dOffsets[i,j],
-        E_fit,  Sum[k:2](     OC[k]*OC[k] ),
-        dE_fit, Sum[k:2]( 2 * OC[k]*dOC[k] ),
-      ]((
-        w_fit * C_valid(i,j) * E_fit  + w_reg * DE_reg.proj(0),
-        w_fit * C_valid(i,j) * dE_fit + w_reg * DE_reg.proj(1),
-      ))))
-
+      dOffsets : num[W,H,2], dAngle : num[W,H]
+    ):
+      P               = { Offsets:Offsets, UrShape:UrShape, Angle:Angle,
+                          dOffsets:dOffsets, dAngle:dAngle }
+      DE_reg[i:W,j:H] = ( (i+1<W) * (Mask(i+1,j) * Dregular(i,j, 1, 0, P)) +
+                         (i-1>=0) * (Mask(i-1,j) * Dregular(i,j,-1, 0, P)) +
+                          (j+1<H) * (Mask(i,j+1) * Dregular(i,j, 0, 1, P)) +
+                         (j-1>=0) * (Mask(i,j-1) * Dregular(i,j, 0,-1, P)) )
+      OC[i:W,j:H,k:2]   = Offsets[i,j,k] - Constraints[i,j,k]
+      dOC[i:W,j:H,k:2]  = dOffsets[i,j,k]
+      E_fit[i:W,j:H]    = Sum[k:2](   OC[i,j,k]*OC[i,j,k] )
+      dE_fit[i:W,j:H]   = Sum[k:2]( 2*OC[i,j,k]*dOC[i,j,k] )
+      return ( Sum[i:W,j:H](Mask(i,j)*(
+                              w_fit * (C_valid(i,j) * E_fit[i,j])
+                            + w_reg * DE_reg[i,j]._0 )),
+               Sum[i:W,j:H](Mask(i,j)*(
+                              w_fit * (C_valid(i,j) * dE_fit[i,j])
+                            + w_reg * DE_reg[i,j]._1 )) )
+    
     return DE_ARAP
 
   def rand_input(self):

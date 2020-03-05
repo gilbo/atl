@@ -167,7 +167,7 @@ class TotalDerivative:
 
     elif eclass is AST.Proj:
       darg        = self.deriv(e.arg)
-      return AST.Tuple( e.idx, darg, e.type, e.srcinfo )
+      return AST.Proj( e.idx, darg, e.type, e.srcinfo )
 
     elif eclass is AST.Gen or eclass is AST.Sum:
       dbody       = self.deriv(e.body)

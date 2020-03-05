@@ -1,7 +1,9 @@
+from __future__ import annotations
 
 import unittest
 from .function_tests import FunctionTestCase
-from ATL import *
+import ATL
+from ATL import num
 
 import numpy as np
 
@@ -11,43 +13,27 @@ import numpy as np
 class TestImgGradient(unittest.TestCase, FunctionTestCase):
 
   def gen_func(self):
-    num       = Type(float)
-    w, h      = Size('w'), Size('h')
-    i, j      = IVar('i'), IVar('j')
-    f         = Var('f')
-    dx        = Var('dx')
-    dy        = Var('dy')
+    @ATL.func
+    def img_grad( w : size, h : size, f : num[h,w] ):
+      dx[j:h,i:w] = (i+1 < w) * (f[j,i+1] - f[j,i])
+      dy[j:h,i:w] = (j+1 < h) * (f[j+1,i] - f[j,i])
+      return (dx,dy)
 
-    img_grad = Fun('img_grad')[ w, h, f : num[h,w] ]( Let[
-      dx, Gen[j:h,i:w]( (i+1 < w) * (f[j,i+1] - f[j,i]) ),
-      dy, Gen[j:h,i:w]( (j+1 < h) * (f[j+1,i] - f[j,i]) ),
-    ]( (dx,dy) ))
     return img_grad
 
   def gen_deriv_sig(self):
     return { 'f' : True }
 
   def gen_deriv(self):
-    num       = Type(float)
-    w, h      = Size('w'), Size('h')
-    i, j      = IVar('i'), IVar('j')
-    f, df     = Var('f'), Var('df')
-    dx, dy    = Var('dx'), Var('dy')
-    ddx, ddy  = Var('ddx'), Var('ddy')
+    @ATL.func
+    def Dimg_grad( w : size, h : size, f : num[h,w], df : num[h,w] ):
+      dx[j:h,i:w]   = (i+1 < w) * ( f[j,i+1] -  f[j,i])
+      dy[j:h,i:w]   = (j+1 < h) * ( f[j+1,i] -  f[j,i])
+      ddx[j:h,i:w]  = (i+1 < w) * (df[j,i+1] - df[j,i])
+      ddy[j:h,i:w]  = (j+1 < h) * (df[j+1,i] - df[j,i])
+      return ((dx,dy),(ddx,ddy))
 
-    img_grad = Fun('d_img_grad')[
-      w, h,
-      f : num[h,w],
-      df : num[h,w]
-    ]( Let[
-      dx,   Gen[j:h,i:w]( (i+1 < w) * ( f[j,i+1] -  f[j,i]) ),
-      dy,   Gen[j:h,i:w]( (j+1 < h) * ( f[j+1,i] -  f[j,i]) ),
-      ddx,  Gen[j:h,i:w]( (i+1 < w) * (df[j,i+1] - df[j,i]) ),
-      ddy,  Gen[j:h,i:w]( (j+1 < h) * (df[j+1,i] - df[j,i]) ),
-    ](
-      ((dx,dy),(ddx,ddy))
-    ))
-    return img_grad
+    return Dimg_grad
     
   def rand_input(self):
     w, h      = self.rand.randint(4,10), self.rand.randint(4,10)

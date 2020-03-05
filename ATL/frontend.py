@@ -7,7 +7,7 @@ from .prelude import *
 
 from . import atl_types as T
 
-
+import itertools
 from fractions import Fraction
 
 # --------------------------------------------------------------------------- #
@@ -48,12 +48,16 @@ module Untyped_AST {
        | Const    ( float val  )
        | BinOp    ( bin_op op, expr lhs, expr rhs )
        | Tuple    ( expr* args )
+       | NamedTuple( name* labels, expr* args )
        | Proj     ( plabel idx, expr arg )
        | TensorLit( expr* args )
        | Gen      ( name name, range range, expr body )
        | Sum      ( name name, range range, expr body )
        | Access   ( expr base, index* idx )
        | BuiltIn  ( builtin f, expr* args )
+       -- important for some front-end variants and metaprogramming
+       -- strategies; always inlined for simplicity for now
+       | FuncCall ( typed_ast ast, exprrngrel* args )
        -- implied multiplication of the bracket with body
        | Indicate ( pred pred, expr body  )
        -- important to express sharing of computation results
@@ -82,6 +86,9 @@ module Untyped_AST {
   'range':    lambda x: is_pos_int(x) or (type(x) is Sym),
   'fraction': lambda x: type(x) is Fraction,
   'builtin':  lambda x: isinstance(x, B.BuiltIn),
+  'typed_ast':lambda x: type(x) is AST.function,
+  'exprrngrel': lambda x: (isinstance(x, UST.expr) or is_valid_name(x)
+                           or is_pos_int(x) or type(x) is Sym),
   'pred_op':  lambda x: x in pred_ops,
   'bin_op':   lambda x: x in bin_ops,
   'plabel':   lambda x: type(x) is int or is_valid_name(x),
@@ -176,7 +183,7 @@ _AST_op_prec = {
 @extclass(UST.Var)
 @extclass(AST.Var)
 def _expr_str(e,prec=0,ind=''):
-  return str(e.name)
+  return repr(e.name)
 @extclass(UST.Const)
 @extclass(AST.Const)
 def _expr_str(e,prec=0,ind=''):
@@ -193,6 +200,11 @@ def _expr_str(e,prec=0,ind=''):
 def _expr_str(e,prec=0,ind=''):
   args = ",".join([ a._expr_str(0,ind) for a in e.args ])
   return f"({args})"
+@extclass(UST.NamedTuple)
+def _expr_str(e,prec=0,ind=''):
+  args = ",".join([ f"{l}:{a._expr_str(0,ind)}"
+                    for l,a in zip(e.labels,e.args) ])
+  return f"{{{args}}}"
 @extclass(UST.Proj)
 @extclass(AST.Proj)
 def _expr_str(e,prec=0,ind=''):
@@ -208,7 +220,7 @@ def _expr_str(e,prec=0,ind=''):
 @extclass(AST.Sum)
 def _expr_str(e,prec=0,ind=''):
   op = "Sum" if (type(e) is AST.Sum or type(e) is UST.Sum) else "Gen"
-  s = f"{op}[{str(e.name)}:{e.range}] {e.body._expr_str(10,ind)}"
+  s = f"{op}[{repr(e.name)}:{e.range}] {e.body._expr_str(10,ind)}"
   return f"({s})" if prec > 10 else s
 @extclass(UST.Access)
 @extclass(AST.Access)
@@ -222,6 +234,11 @@ def _expr_str(e,prec=0,ind=''):
   args = ",".join([ a._expr_str(0,ind) for a in e.args ])
   s = f"{e.f.name()}({args})"
   return f"({s})" if prec > 80 else s
+@extclass(UST.FuncCall)
+def _expr_str(e,prec=0,ind=''):
+  args = ",".join([ a._expr_str(0,ind) for a in e.args ])
+  s = f"{e.ast.name}({args})"
+  return f"({s})" if prec > 80 else s
 @extclass(UST.Indicate)
 @extclass(AST.Indicate)
 def _expr_str(e,prec=0,ind=''):
@@ -233,7 +250,7 @@ def _expr_str(e,prec=0,ind=''):
   # note that this is ill-behaved formatting
   # for lets nested inside of expressions
   subind = ind + "    "
-  decls  = [ (f"{str(s.name)}"
+  decls  = [ (f"{repr(s.name)}"
               f"{'' if s.type is None else ' : '+str(s.type)}")
              for s in e.stmts ]
   # compute alignment...
@@ -262,7 +279,7 @@ def _index_str(e,prec=0,ind=''):
 @extclass(AST.IdxVar)
 @extclass(AST.IdxSize)
 def _index_str(e,prec=0,ind=''):
-  return str(e.name)
+  return repr(e.name)
 @extclass(UST.IdxAdd)
 @extclass(AST.IdxAdd)
 def _index_str(e,prec=0,ind=''):
@@ -334,6 +351,21 @@ def __str__(f):
   return f"function {nmstr}\n{sstr}\n{vstr}\n{rstr}\n{rtstr}\n{bstr}"
 del __str__
 
+
+
+# --------------------------------------------------------------------------- #
+# AST argument mangling
+
+
+@extclass(AST.function)
+def decls_in_order(self):
+  if not hasattr(self,'_decl_cache'):
+    def find_sym(nm):
+      for d in itertools.chain(self.vars, self.sizes, self.relations):
+        if d.name == nm:  return d
+      assert False, "Internal inconsistency in typed ast arguments"
+    self._decl_cache = [ find_sym(nm) for nm in self.arg_order ]
+  return self._decl_cache
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -544,6 +576,14 @@ class _TypeChecker:
         if a.type is T.error:
           typ = T.error
       return AST.Tuple( args, typ, node.srcinfo )
+
+    elif nclass is UST.NamedTuple:
+      args    = [ self.check(a) for a in node.args ]
+      typ     = T.Tuple(T.labels(node.labels), [ a.type for a in args ])
+      for a in args:
+        if a.type is T.error:
+          typ = T.error
+      return AST.Tuple( args, typ, node.srcinfo )
     
     elif nclass is UST.Proj:
       arg   = self.check(node.arg)
@@ -564,7 +604,7 @@ class _TypeChecker:
         else:
           assert is_valid_name(idx)
           # find this label...
-          for k,nm in enumerate(arg.type.names):
+          for k,nm in enumerate(arg.type.labels.names):
             if nm == idx:
               idx = k
               typ = arg.type.types[idx]
@@ -635,6 +675,71 @@ class _TypeChecker:
         self._err(node, str(be))
         typ   = T.error
       return AST.BuiltIn(node.f, args, typ, node.srcinfo)
+
+    elif nclass is UST.FuncCall:
+      decls   = node.ast.decls_in_order()
+
+      # convert the arguments into a remapping dictionary
+      typ     = node.ast.rettype
+      remap   = {}
+      binds   = []
+      # first, pre-process size substitutions
+      for i,(d,a) in enumerate(zip(decls,node.args)):
+        if type(d) is AST.size_decl:
+          if type(a) is not Sym and not is_pos_int(a):
+            self._err(node, f"was expecting argument {i} to be a range. "
+                            f"(size or positive integer)")
+            typ       = T.error
+          else:
+            rng       = self._get_range(node,a)
+            if rng is None:  typ           = T.error
+            else:           remap[d.name]  = rng
+      # then, process the rest of arguments
+      for i,(d,a) in enumerate(zip(decls,node.args)):
+        if type(d) is AST.rel_decl:
+          if type(a) is not str:
+            self._err(node, f"was expecting argument {i} to be a relation.")
+            typ       = T.error
+          else:
+            nm, szs   = self._get_rel(node,a)
+            if nm is None:
+              typ     = T.error
+            else:
+              sizes   = [ (remap[z] if z in remap else z) for z in d.sizes ]
+              if tuple(szs) != tuple(sizes):
+                self._err(node, f"argument {i} (a relation) did not have "
+                                f"matching sizes: {szs} vs {sizes}")
+                typ   = T.error
+              else:
+                remap[d.name] = nm
+        elif type(d) is AST.size_decl:
+          pass
+        elif type(d) is AST.var_decl:
+          if not isinstance(a, UST.expr):
+            self._err(node, f"was expecting argument {i} to be an expression.")
+            typ       = T.error
+          else:
+            e         = self.check(a)
+            if e.type == T.error:
+              typ     = T.error
+            elif e.type != d.type.remap(remap):
+              self._err(a, f"type mismatch; expected {d.type} but got "
+                           f"inconsistent {e.type}")
+              typ     = T.error
+            else:
+              nm      = d.name.copy()
+              binds.append( AST.assign( nm, d.type.remap(remap),
+                                        e, node.srcinfo ) )
+              remap[d.name] = nm
+      # done processing arguments into a remapping
+      # consider early exiting to simplify continuing logic
+      if typ == T.error:
+        return AST.Const(0.0,T.error,node.srcinfo)
+
+      # ok, now we need to construct an alpha-substituted version of
+      # the function as a let-expression
+      body = _AlphaSub(node.ast.body, remap).get_expr()
+      return AST.Let(binds, body, body.type, node.srcinfo)
     
     elif nclass is UST.Indicate:
       pred    = self.check(node.pred)
@@ -721,6 +826,116 @@ def _UST_function_typecheck(f):
 UST.function.typecheck = _UST_function_typecheck
 del _UST_function_typecheck
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+class _AlphaSub:
+  """ alpha-substitution pass; expects a typed-ast and argument remapping """
+
+  def __init__(self, body, remapping):
+    assert isinstance(body, AST.expr), 'expected AST.function'
+    assert type(remapping) is dict
+    self._ctxt        = Environment()
+    for nm,val in remapping.items():
+      self._ctxt[nm]  = val
+    self._ctxt.push()
+
+    # get the body and sub the expression?
+    self._sub_expr = self.alpha(body)
+
+  def get_expr(self):
+    return self._sub_expr
+
+  def alpha(self, node):
+    nclass  = type(node)
+    typ     = ( node.type.remap(self._ctxt)
+                  if isinstance(node, AST.expr) else None )
+
+    if   nclass is AST.Var:
+      nm    = self._ctxt[node.name]
+      return AST.Var( nm, typ, node.srcinfo )
+    elif nclass is AST.Const:
+      return node
+    elif nclass is AST.BinOp:
+      lhs   = self.alpha(node.lhs)
+      rhs   = self.alpha(node.rhs)
+      return AST.BinOp(node.op, lhs, rhs, typ, node.srcinfo)
+    elif nclass is AST.Tuple:
+      args  = [ self.alpha(a) for a in node.args ]
+      return AST.Tuple( args, typ, node.srcinfo )
+    elif nclass is AST.Proj:
+      arg   = self.alpha(node.arg)
+      return AST.Proj(node.idx, arg, typ, node.srcinfo)
+    elif nclass is AST.TensorLit:
+      args  = [ self.alpha(a) for a in node.args ]
+      return AST.TensorLit( args, typ, node.srcinfo )
+    elif nclass is AST.Gen or nclass is AST.Sum:
+      self._ctxt.push()
+      rng   = node.range
+      if type(node.range) is Sym and node.range in self._ctxt:
+        rng = self._ctxt[node.range]
+      nm    = node.name.copy()
+      self._ctxt[node.name] = nm
+      body  = self.alpha(node.body)
+      self._ctxt.pop()
+      return nclass(nm, rng, body, typ, node.srcinfo)
+    elif nclass is AST.Access:
+      base  = self.alpha(node.base)
+      idx   = [ self.alpha(i) for i in node.idx ]
+      return AST.Access(base, idx, typ, node.srcinfo)
+    elif nclass is AST.BuiltIn:
+      args  = [ self.alpha(a) for a in node.args ]
+      return AST.BuiltIn(node.f, args, typ, node.srcinfo)
+    elif nclass is AST.Indicate:
+      pred  = self.alpha(node.pred)
+      body  = self.alpha(node.body)
+      return AST.Indicate(pred, body, typ, node.srcinfo)
+    elif nclass is AST.Let:
+      stmts = []
+      self._ctxt.push() # allow values to be overwritten...
+      for s in node.stmts:
+        rhs   = self.alpha(s.rhs)
+        styp  = s.type.remap(self._ctxt)
+        nm    = s.name.copy()
+        self._ctxt[s.name] = nm
+        stmts.append( AST.assign(nm, styp, rhs, s.srcinfo) )
+      ret   = self.alpha(node.ret)
+      self._ctxt.pop()
+      return AST.Let(stmts, ret, typ, node.srcinfo)
+
+    elif nclass is AST.IdxConst:
+      return node
+    elif nclass is AST.IdxVar:
+      return AST.IdxVar(self._ctxt[node.name], node.srcinfo)
+    elif nclass is AST.IdxSize:
+      val   = self._ctxt[node.name]
+      if type(val) is int:
+        return AST.IdxConst(val, node.srcinfo)
+      else:
+        return AST.IdxSize(val, node.srcinfo)
+    elif nclass is AST.IdxAdd or nclass is AST.IdxSub:
+      lhs   = self.alpha(node.lhs)
+      rhs   = self.alpha(node.rhs)
+      return nclass(lhs, rhs, node.srcinfo)
+    elif nclass is AST.IdxScale:
+      idx   = self.alpha(node.idx)
+      return AST.IdxScale(node.coeff, idx, node.srcinfo)
+
+    elif nclass is AST.Cmp:
+      lhs   = self.alpha(node.lhs)
+      rhs   = self.alpha(node.rhs)
+      return AST.Cmp(node.op, lhs, rhs, node.srcinfo)
+    elif nclass is AST.Relation:
+      args  = [ self.alpha(i) for i in node.args ]
+      nm    = self._ctxt[node.name]
+      return AST.Relation(nm,args,node.srcinfo)
+    elif nclass is AST.Conj or nclass is AST.Disj:
+      lhs   = self.alpha(node.lhs)
+      rhs   = self.alpha(node.rhs)
+      return nclass(lhs, rhs, node.srcinfo)
+
+    else:
+      assert False, "Unexpected AST class for {node}"
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

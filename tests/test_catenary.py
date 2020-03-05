@@ -1,7 +1,9 @@
+from __future__ import annotations
 
 import unittest
 from .function_tests import FunctionTestCase
-from ATL import *
+import ATL
+from ATL import num
 
 import numpy as np
 
@@ -11,43 +13,23 @@ import numpy as np
 class TestCatenary(unittest.TestCase, FunctionTestCase):
 
   def gen_func(self):
-    num       = Type(float)
-    N         = Size('N')
-    x         = Var('x')
-    link_w    = Var('link_w')
-    K_spring  = Var('K_spring')
-    gravity   = Var('gravity')
-    i         = IVar('i')
+    EPS     = 1e-7
 
-    def spring(a,b):
-      disp    = Var('disp')
-      dist    = Var('dist')
-      k       = IVar('k')
-      EPS     = 1e-7
-      return Let[
-        disp,   Gen[k:2]( a[k] - b[k] ),
-        dist,   ATLmath.sqrt(ATLmath.max( EPS, Sum[k:2]( disp[k]*disp[k] )))
-      ]( K_spring * (dist - link_w) )
+    @ATL.func
+    def spring( a : num[2], b : num[2], K_spring : num, link_w : num ):
+      disp[k:2] = a[k] - b[k]
+      dist      = sqrt(max( EPS, Sum[k:2](disp[k]*disp[k]) ))
+      return K_spring * (dist - link_w)
 
-    E_spring  = Var('E_spring')
-    E_gravity = Var('E_gravity')
-    end_0     = Expr([0,0])
-    end_N     = Expr([1,0])
-
-    E_catenary = Fun('E_catenary',num)[
-      # number of nodes
-      N,
-      # parameters to energy model
-      link_w : num, K_spring : num, gravity : num,
-      # positions of nodes
-      x : num[N,2],
-    ]( Let[
-                    # first energies for the two endpoints
-      E_spring,   ( (N>0)*( spring(end_0,x[0]) + spring(end_N,x[N-1]) ) +
-                    # energies for all the points in the middle
-                    Sum[i:N]( (i+1<N)*spring(x[i],x[i+1]) )),
-      E_gravity,  ( Sum[i:N]( gravity*x[i,1] )),
-    ]( E_spring + E_gravity ))
+    @ATL.func
+    def E_catenary( N : size,
+                    link_w : num, K_spring : num, gravity : num,
+                    x : num[N,2] ) -> num:
+      E_spring  = ( (N>0)*( spring([0,0],x[0],  K_spring,link_w)
+                          + spring([1,0],x[N-1],K_spring,link_w) )
+                  + Sum[i:N]( (i+1<N)*spring(x[i],x[i+1],K_spring,link_w) ) )
+      E_gravity = Sum[i:N]( gravity * x[i,1] )
+      return E_spring + E_gravity
 
     return E_catenary
 
@@ -55,70 +37,42 @@ class TestCatenary(unittest.TestCase, FunctionTestCase):
     return { 'x' : True }
 
   def gen_deriv(self):
-    num       = Type(float)
-    N         = Size('N')
-    x, dx     = Var('x'), Var('dx')
-    link_w    = Var('link_w')
-    K_spring  = Var('K_spring')
-    gravity   = Var('gravity')
-    i         = IVar('i')
+    EPS     = 1e-7
+    R2      = num[2]
 
-    def Dspring(a,b,da,db):
-      disp    = Var('disp')
-      dist    = Var('dist')
-      clamped = Var('clamped')
-      d_disp  = Var('d_disp')
-      d_dist  = Var('d_dist')
-      d_clamped = Var('d_clamped')
-      k       = IVar('k')
-      EPS     = 1e-7
-      return Let[
-        disp,     Gen[k:2]( a[k] - b[k] ),
-        d_disp,   Gen[k:2]( da[k] - db[k] ),
-        dist,     ATLmath.sqrt(Sum[k:2]( disp[k]*disp[k] )),
-        d_dist,   Sum[k:2]( disp[k]*d_disp[k] ) / dist,
-        clamped,  ATLmath.max( EPS, dist ),
-        d_clamped,ATLmath.select_gt( EPS, dist, 0, d_dist ),
-      ]( ( K_spring * (clamped - link_w),
-           K_spring * d_clamped ) )
+    @ATL.func
+    def Dspring( a:R2, b:R2, da:R2, db:R2, K_spring:num, link_w:num ):
+      disp[k:2]   = a[k] - b[k]
+      d_disp[k:2] = da[k] - db[k]
+      sum_disp    = Sum[k:2](disp[k]*disp[k])
+      dist        = sqrt(max( EPS, sum_disp ))
+      d_dist      = select_gt( EPS, sum_disp,
+                               0, Sum[k:2](disp[k]*d_disp[k]) ) / dist
+      return ( K_spring * (dist - link_w),
+               K_spring * d_dist )
 
-    E_spring    = Var('E_spring')
-    E_gravity   = Var('E_gravity')
-    dE_spring   = Var('dE_spring')
-    dE_gravity  = Var('dE_gravity')
-    zero2       = Expr([0,0])
-    end_0       = zero2
-    end_N       = Expr([1,0])
-
-    Dspring_0   = Var('Dspring_0')
-    Dspring_N   = Var('Dspring_N')
-    Dspring_i   = Var('Dspring_i')
-
-    E_catenary = Fun('deriv_E_catenary',(num,num))[
-      # number of nodes
-      N,
-      # parameters to energy model
+    @ATL.func
+    def deriv_E_catenary(
+      N : size,
       link_w : num, K_spring : num, gravity : num,
-      # positions of nodes
-      x : num[N,2], dx : num[N,2],
-    ]( Let[
-                    # first energies for the two endpoints
-      Dspring_0,  (N>0)* Dspring(end_0,x[0],   zero2,dx[0]  ),
-      Dspring_N,  (N>0)* Dspring(end_N,x[N-1], zero2,dx[N-1]),
-      Dspring_i,  Gen[i:N]( (i+1<N) * Dspring(x[i],x[i+1],dx[i],dx[i+1]) ),
-      E_spring,   ( Dspring_0.proj(0) + Dspring_N.proj(0) ) +
-                    # energies for all the points in the middle
-                    Sum[i:N]( (i+1<N)* Dspring_i[i].proj(0) ),
-      dE_spring,  ( Dspring_0.proj(1) + Dspring_N.proj(1) ) +
-                    # energies for all the points in the middle
-                    Sum[i:N]( (i+1<N)* Dspring_i[i].proj(1) ),
-      E_gravity,  ( Sum[i:N]( gravity*x[i,1] )),
-      dE_gravity, ( Sum[i:N]( gravity*dx[i,1] )),
-    ]( ( E_spring  + E_gravity,
-         dE_spring + dE_gravity ) ))
+      x : num[N,2], dx : num[N,2]
+    ) -> (num,num):
+      Dspring_0   = (N>0)* Dspring([0,0], x[0], [0,0], dx[0],
+                                                        K_spring,link_w)
+      Dspring_N   = (N>0)* Dspring([1,0], x[N-1], [0,0], dx[N-1],
+                                                        K_spring,link_w)
+      Dspring_i[i:N]  = (i+1<N) * Dspring(x[i],x[i+1],dx[i],dx[i+1],
+                                                        K_spring,link_w)
+      E_spring    = ( Dspring_0._0 + Dspring_N._0 +
+                      Sum[i:N]( (i+1<N)* Dspring_i[i]._0 ))
+      dE_spring   = ( Dspring_0._1 + Dspring_N._1 +
+                      Sum[i:N]( (i+1<N)* Dspring_i[i]._1))
+      E_gravity   = Sum[i:N]( gravity*x[i,1] )
+      dE_gravity  = Sum[i:N]( gravity*dx[i,1] )
+      return (E_spring + E_gravity, dE_spring + dE_gravity)
 
-    return E_catenary
-
+    return deriv_E_catenary
+   
   def rand_input(self):
     # this test puts the points of the chain in a line
     # from (0,0) to (1,0), but with jitter introduced

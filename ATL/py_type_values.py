@@ -2,6 +2,7 @@
 from .prelude import *
 
 from . import atl_types as T
+from . import frontend  as F
 
 import numpy as np
 from collections import namedtuple
@@ -62,7 +63,8 @@ def argcheck_python_value(ctxt, typ, val, arg_id, is_output=False):
       raise TypeError(f"{pre} expected float")
 
   elif type(typ) is T.Tuple:
-    labels = typ.labels or [ f"_{i}" for i,t in enumerate(typ.types) ]
+    labels = ( typ.labels.names if typ.labels is not None else
+                [ f"_{i}" for i,t in enumerate(typ.types) ] )
     if not isinstance(val, tuple):
       raise TypeError(f"{pre} expected tuple")
     elif len(val) != len(typ.types):
@@ -136,6 +138,29 @@ def argcheck_python_relation(ctxt, sizes, val, arg_id):
       raise TypeError(f"{pre} expected tight ndarray layout with "
                       f"dimensions nested right/outermost "
                       f"to left/innermost")
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Argument value conversion to code constants
+
+def pyval_to_ast(ctxt, typ, val, srcinfo):
+  assert typ.is_const_size(), "TODO: implement non-const-size conversion"
+
+  if typ == T.num:
+    assert type(val) == float
+    return F.AST.Const( val, typ, srcinfo )
+  elif type(typ) is T.Tuple:
+    assert len(val) == len(typ.types)
+    args  = [ pyval_to_ast(ctxt, t, v, srcinfo)
+              for t,v in zip(list(val), typ.types) ]
+    return F.AST.Tuple( args, typ, srcinfo )
+  elif type(typ) is T.Tensor:
+    assert type(val) is np.ndarray
+    assert val.dtype == float or val.dtype == np.float64
+    assert val.shape[0] == typ.range
+    args  = [ pyval_to_ast(ctxt, typ.type, v, srcinfo) for v in val ]
+    return F.AST.TensorLit( args, typ.type, srcinfo )
+  else: error("unexpected impossible case")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

@@ -172,7 +172,7 @@ class AST_to_NIR:
       elif e.op == '*':
         return self.do_mul(lhs, rhs)
       elif e.op == '/':
-        return self.do_mul(lhs, NIR.Pow(rhs, Fraction(1), rhs.type))
+        return self.do_mul(lhs, NIR.Pow(rhs, Fraction(-1), rhs.type))
       else: assert False, f"unrecognized op: {e.op}"
 
     elif eclass is AST.TensorLit:
@@ -220,7 +220,7 @@ class AST_to_NIR:
     projs       = []
     while eclass is AST.Proj:
       projs     = [e.idx] + projs
-      e, eclass = e.base, type(e.base)
+      e, eclass = e.arg, type(e.arg)
 
     assert eclass is AST.Var, "should be left with a variable"
 
@@ -229,12 +229,12 @@ class AST_to_NIR:
 
     # determine whether this variable is an input, and project if needed
     if type(x) is NIR.Var:
-      # if it's a variable, then we can project
-      assert len(x.proj) == 0
       typ       = x.type
       for i in projs:
         assert type(typ) is T.Tuple
         typ     = typ.types[i]
+      if len(x.proj) > 0:
+        projs   = x.proj + projs
       x = NIR.Var( x.name, projs, typ )
     else:
       assert len(projs) == 0, "should not be projecting intermediates"

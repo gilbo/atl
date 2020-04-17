@@ -52,9 +52,10 @@ class NIR_Deriv:
         dict mapping strings corresponding to argument variables
         to strings corresponding to new differential argument variables.
   """
-  def __init__(self, nir, dvars, use_simplify=True):
+  def __init__(self, nir, dvars, outname_pair, use_simplify=True):
     self._nir   = nir
     self._use_simplify = use_simplify
+    self._outname_pair = outname_pair
 
     # set of all currently used variable names
     all_strs    = { str(x) : True for x in nir.arg_order }
@@ -93,7 +94,8 @@ class NIR_Deriv:
 
     arg_order   = nir.arg_order + [ vd.name for vd in self._d_decl ]
     newvars     = nir.vars + self._d_decl
-    rettype     = T.Tuple(T.labels(['out','dout']),
+    outnm, doutnm = self._outname_pair
+    rettype     = T.Tuple(T.labels([outnm,doutnm]),
                                    [nir.rettype, nir.rettype])
 
     self._ctxt.push()
@@ -178,7 +180,8 @@ class NIR_Deriv:
     self._stmts = NIR_Stmts(nir.output) # call n_uses() to get out-degree
     self._accum = {}
 
-    doutSym     = Sym('dout')
+    outnm, doutnm = self._outname_pair
+    doutSym     = Sym(doutnm)
     vd_dout     = NIR.var_decl(doutSym, nir.rettype, nir.srcinfo)
     arg_order   = nir.arg_order + [ doutSym ]
     newvars     = nir.vars + [ vd_dout ]
@@ -229,7 +232,7 @@ class NIR_Deriv:
       g_out     = NIR.Tuple(acc_outs, d_rettype, nir.srcinfo)
 
     # now assemble the output pair...
-    rettype     = T.Tuple(T.labels(['out','grad_out']),
+    rettype     = T.Tuple(T.labels([outnm,'grad_out']),
                                    [nir.rettype, g_out.type])
     out         = NIR.Tuple([nir.output, g_out], rettype, nir.srcinfo)
     self._ctxt.pop()

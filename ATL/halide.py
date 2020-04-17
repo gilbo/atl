@@ -479,7 +479,7 @@ for nm in ['sin','cos','tan','asin','acos','atan',
     HWGen.fun(f"hwrap_{nm}",[('arg',hw_expr_t)],hw_expr_t,f"""
     return _to_E(new Halide::Expr(Halide::{nm}(*_from_E(arg))));""")
 # math library binary functions
-HWGen.fun("whrap_pow",[('base',hw_expr_t),('exp',hw_expr_t)],hw_expr_t,"""
+HWGen.fun("hwrap_pow",[('base',hw_expr_t),('exp',hw_expr_t)],hw_expr_t,"""
     return _to_E(new Halide::Expr(Halide::pow(*_from_E(base),
                                               *_from_E(exp))));""")
 HWGen.fun("hwrap_atan2",[('y',hw_expr_t),('x',hw_expr_t)],hw_expr_t,"""

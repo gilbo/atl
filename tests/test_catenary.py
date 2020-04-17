@@ -12,6 +12,27 @@ import numpy as np
 
 class TestCatenary(unittest.TestCase, FunctionTestCase):
 
+  def test_user_level(self):
+    self._init_rand()
+    E         = self.gen_func_memo()
+    DE        = E.deriv( x=True ).proj(1).simplify()
+    d2E       = self.gen_deriv()
+    I,dI      = self.rand_deriv_input()
+    O1        = DE( *(I+dI) )
+    O2        = d2E( *(I+dI) )[1]
+    np.testing.assert_allclose(O1, O2)
+
+  def test_user_grad(self):
+    self._init_rand()
+    E         = self.gen_func_memo()
+    G         = E.grad(x=True).proj(1)
+    refG      = E._TEST_NIR_Adjoint( x=True )
+
+    I         = self.rand_input()
+    Out1      = G(*I)
+    Out2      = refG(*(I+(1.0,)))[1]
+    np.testing.assert_allclose(Out1, Out2)
+
   def gen_func(self):
     EPS     = 1e-7
 

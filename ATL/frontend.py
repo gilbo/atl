@@ -183,7 +183,7 @@ _AST_op_prec = {
 @extclass(UST.Var)
 @extclass(AST.Var)
 def _expr_str(e,prec=0,ind=''):
-  return repr(e.name)
+  return str(e.name)
 @extclass(UST.Const)
 @extclass(AST.Const)
 def _expr_str(e,prec=0,ind=''):
@@ -220,7 +220,7 @@ def _expr_str(e,prec=0,ind=''):
 @extclass(AST.Sum)
 def _expr_str(e,prec=0,ind=''):
   op = "Sum" if (type(e) is AST.Sum or type(e) is UST.Sum) else "Gen"
-  s = f"{op}[{repr(e.name)}:{e.range}] {e.body._expr_str(10,ind)}"
+  s = f"{op}[{str(e.name)}:{e.range}] {e.body._expr_str(10,ind)}"
   return f"({s})" if prec > 10 else s
 @extclass(UST.Access)
 @extclass(AST.Access)
@@ -250,7 +250,7 @@ def _expr_str(e,prec=0,ind=''):
   # note that this is ill-behaved formatting
   # for lets nested inside of expressions
   subind = ind + "    "
-  decls  = [ (f"{repr(s.name)}"
+  decls  = [ (f"{str(s.name)}"
               f"{'' if s.type is None else ' : '+str(s.type)}")
              for s in e.stmts ]
   # compute alignment...
@@ -279,7 +279,7 @@ def _index_str(e,prec=0,ind=''):
 @extclass(AST.IdxVar)
 @extclass(AST.IdxSize)
 def _index_str(e,prec=0,ind=''):
-  return repr(e.name)
+  return str(e.name)
 @extclass(UST.IdxAdd)
 @extclass(AST.IdxAdd)
 def _index_str(e,prec=0,ind=''):
@@ -559,7 +559,7 @@ class _TypeChecker:
       if lhs.type is T.error or rhs.type is T.error:
         typ = T.error
       elif lhs.type != rhs.type:
-        self._err(node, f"expected types of operands to match"
+        self._err(node, f"expected types of operands to match "
                         f"for binary operator '{node.op}'")
         typ = T.error
       elif node.op != "+" and lhs.type != T.num:
@@ -739,6 +739,8 @@ class _TypeChecker:
       # ok, now we need to construct an alpha-substituted version of
       # the function as a let-expression
       body = _AlphaSub(node.ast.body, remap).get_expr()
+      # tag this sub-tree as a hack to circumvent bounds checking
+      body.func_call_sub = True
       return AST.Let(binds, body, body.type, node.srcinfo)
     
     elif nclass is UST.Indicate:
@@ -830,7 +832,8 @@ del _UST_function_typecheck
 # --------------------------------------------------------------------------- #
 
 class _AlphaSub:
-  """ alpha-substitution pass; expects a typed-ast and argument remapping """
+  """ alpha-substitution pass; expects a typed-ast body (i.e. expr)
+      and argument remapping """
 
   def __init__(self, body, remapping):
     assert isinstance(body, AST.expr), 'expected AST.function'

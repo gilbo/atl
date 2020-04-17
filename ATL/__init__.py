@@ -20,6 +20,8 @@ from .quote_api import (
 )
 num = Type(float)
 
+from .atl_types import is_type,  Num, Tuple, Tensor
+
 from .parse_pyast import func, macro
 
 __all__ = [
@@ -45,4 +47,9 @@ __all__ = [
   #
   "func",
   "macro",
+  #
+  "is_type",
+  "Num",
+  "Tuple",
+  "Tensor",
 ]

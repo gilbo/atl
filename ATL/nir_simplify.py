@@ -354,7 +354,7 @@ def simplify(e):
         val     = math.pow( base.val, float(e.power) )
         esimpl  = NIR.Const(val, e.type)
       elif type(base) is NIR.Pow:
-        esimpl  = NIR.Pow( base.base, e.power * base.power )
+        esimpl  = NIR.Pow( base.base, e.power * base.power, e.type )
       else:
         esimpl  = NIR.Pow(base, e.power, e.type)
 

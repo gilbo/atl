@@ -85,6 +85,14 @@ def has_tuples(t):
 del has_tuples
 
 @extclass(_Types.type)
+def has_tensors(t):
+  tclass = type(t)
+  if   tclass is Tuple:   return any( tt.has_tensors() for tt in t.types )
+  elif tclass is Tensor:  return True
+  else:                   return False
+del has_tensors
+
+@extclass(_Types.type)
 def is_SoA(t):
   tclass = type(t)
   if tclass is Tuple:
@@ -106,6 +114,18 @@ def shape(t):
     t = t.type
   return shp
 del shape
+
+@extclass(_Types.type)
+def is_const_size(t):
+  tclass = type(t)
+  if tclass is Tuple:
+    return all( subt.is_const_size() for subt in t.types )
+  elif tclass is Tensor:
+    return type(t.range) is int and t.type.is_const_size()
+  elif tclass is Num:
+    return True
+  else:
+    return False
 
 # --------------------------------------------------------------------------- #
 # Type Matching to account for name differences between Tuples

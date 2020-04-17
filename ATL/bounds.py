@@ -159,7 +159,12 @@ class BoundsExtraction:
 
   def extract(self, e):
     eclass  = type(e)
-    if   eclass is AST.Var or eclass is AST.Const:
+
+    # do not perform bounds-checks on code that was already checked.
+    if hasattr(e, 'func_call_sub'):
+      return BD.null
+
+    elif eclass is AST.Var or eclass is AST.Const:
       return BD.null
 
     elif eclass is AST.BinOp:

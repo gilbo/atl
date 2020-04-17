@@ -109,6 +109,11 @@ class Environment:
       return self._bottom_dict[key]
     raise KeyError(key)
 
+  def __contains__(self,key):
+    for e in reversed(self._stack):
+      if key in e: return True
+    return bool(self._bottom_dict and key in self._bottom_dict)
+
   def __setitem__(self,key,val):
     self._stack[-1][key] = val
 

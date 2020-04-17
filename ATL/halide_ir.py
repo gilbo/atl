@@ -447,7 +447,7 @@ class _HIR_JIT_Execution(_HIR_Compilation):
         n_out   = len(outputs)
         c_fs    = (n_out * hw_func_t)(*out_fs)
         self._pipeline_obj = C.hwrap_new_pipeline(n_out,c_fs)
-        C.hwrap_autoschedule_pipeline(self._pipeline_obj)
+        #C.hwrap_autoschedule_pipeline(self._pipeline_obj)
         
     def _exec(self, params, imgs, outputs):
         self._check_args(params,imgs,outputs)

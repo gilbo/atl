@@ -201,7 +201,9 @@ def parse_pyast( module_ast, func_globals, srclocals, getsrcinfo,
     var_decls   = []
     size_decls  = []
     rel_decls   = []
+    #print(args.args)
     for a in args.args:
+      #print(a.arg, a.annotation)
       assert a.annotation is not None
       tnode = a.annotation
       arg_order.append(a.arg)

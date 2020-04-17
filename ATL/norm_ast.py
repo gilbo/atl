@@ -279,7 +279,7 @@ class TupleElimination:
 
     # bind the input variables in a sealed way
     for vd in ast.vars:
-      newvar = AST.Var( vd.name, vd.type, null_srcinfo() )
+      newvar = AST.Var( vd.name, vd.type, vd.srcinfo )
       self._set_var(vd.name, TupleElimination._Sealed(newvar, input=True))
 
     # If the body has a tuple return type and is not a Let, we need
@@ -465,7 +465,7 @@ class TupleElimination:
       # type conversion.
       # this process will also build up a term for later substitution
       #   x -> ((x_00,x_01),x_1)
-      def soa_unpack( rhs, nm, typ, projstk=[] ):
+      def soa_unpack( rhs, nm, typ, srcinfo, projstk=[] ):
         # What is the right order to assemble this projstk given that
         # typ is recursively unpacked?
         # Consider a nested tuple type.  The outermost tuple type is
@@ -476,11 +476,11 @@ class TupleElimination:
           args    = []
           for i,subtyp in enumerate(typ.types):
             projstk.insert(0,i)
-            a     = soa_unpack(rhs,f"{nm}{i}",subtyp,projstk)
+            a     = soa_unpack(rhs,f"{nm}{i}",subtyp,srcinfo,projstk)
             assert a.type == subtyp
             args.append(a)
             projstk.pop(0)
-          return AST.Tuple(args, typ, null_srcinfo())
+          return AST.Tuple(args, typ, srcinfo)
         else:
           # create a copy of the right-hand-side and eliminate
           # tuples on it consistent with this particular branch of
@@ -492,7 +492,7 @@ class TupleElimination:
           stmts.append( AST.assign(x,typ,rhs,stmt.srcinfo) )
           # we also need to "seal" this variable to prevent recursive
           # substitution
-          x_var   = AST.Var(x, typ, null_srcinfo())
+          x_var   = AST.Var(x, typ, srcinfo)
           self._set_var(x, TupleElimination._Sealed(x_var))
           return x_var
 
@@ -504,7 +504,8 @@ class TupleElimination:
         # important to not modify name unless necessary
         nm        = str(stmt.name)
         if stmt.type.has_tuples(): nm += '_'
-        rsub      = soa_unpack( stmt.rhs, nm, stmt.type.SoA_transform() )
+        rsub      = soa_unpack( stmt.rhs, nm, stmt.type.SoA_transform(),
+                                stmt.srcinfo )
 
         # bind the SoA-transformed variable now
         self._set_var(stmt.name, TupleElimination._Tuple(rsub))
@@ -522,7 +523,7 @@ class TupleElimination:
       if not rettyp.has_tuples():
         ret       = self.elim(e.ret, projstk)
       else:
-        ret       = soa_unpack( e.ret, '_', rettyp, projstk )
+        ret       = soa_unpack( e.ret, '_', rettyp, e.ret.srcinfo, projstk )
         # patch up the srcinfo on this return tuple
         ret       = TupleElimination._Tuple(ret).proj([],e.ret.srcinfo)
       self._ctxt.pop()
@@ -617,9 +618,9 @@ class IndexDownGenUp:
     return subst
 
   def wrap_gens(self, gens, e):
-    for i,rng in reversed(gens):
+    for i,rng,srcinfo in reversed(gens):
       typ       = T.Tensor(rng, e.type)
-      e         = AST.Gen(i,rng,e,typ,e.srcinfo)
+      e         = AST.Gen(i,rng,e,typ,srcinfo)
     return e
   def wrap_access(self, e, idxstk):
     if len(idxstk) > 0:
@@ -633,8 +634,8 @@ class IndexDownGenUp:
     # hack to ensure that tensors on RHS get fully indexed
     if not self._in_output and type(acc.type) is T.Tensor:
       shape     = acc.type.shape()
-      igens     = [ (Sym(f"_{i}"),r) for i,r in enumerate(shape) ]
-      iexprs    = [ AST.IdxVar(i, null_srcinfo()) for i,r in igens ]
+      igens     = [ (Sym(f"_{i}"),r,e.srcinfo) for i,r in enumerate(shape) ]
+      iexprs    = [ AST.IdxVar(i,s) for i,r,s in igens ]
       acc       = AST.Access( acc, iexprs, T.num, acc.srcinfo )
       acc       = self.wrap_gens(igens, acc)
 
@@ -702,8 +703,8 @@ class IndexDownGenUp:
       else:
         lgen, lhs     = self.downup(e.lhs, idxstk.copy())
         # construct indexing corresponding to lgen
-        for i,rng in lgen:
-          idxstk.insert(0, AST.IdxVar(i, null_srcinfo()))
+        for i,rng,srcinfo in lgen:
+          idxstk.insert(0, AST.IdxVar(i,srcinfo))
         # and then process the right-hand side with these additional
         # indexings to ensure that no generators are returned.
         # Doing this accomplishes substitution for the new merged
@@ -773,13 +774,13 @@ class IndexDownGenUp:
       else:
         # otherwise, just process and return back up with an additional
         # generator on the return stack
-        self._set_var( e.name, AST.IdxVar(e.name,null_srcinfo()) )
+        self._set_var( e.name, AST.IdxVar(e.name,e.srcinfo) )
         gens, body    = self.downup(e.body)
-        gens.insert(0, (e.name,e.range) )
+        gens.insert(0, (e.name,e.range,e.srcinfo) )
         return gens, body
 
     elif eclass is AST.Sum:
-      self._set_var( e.name, AST.IdxVar(e.name,null_srcinfo()) )
+      self._set_var( e.name, AST.IdxVar(e.name,e.srcinfo) )
       gens, body      = self.downup(e.body, idxstk)
       body            = AST.Sum(e.name, e.range, body, body.type, e.srcinfo)
       return gens, body

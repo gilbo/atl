@@ -52,7 +52,7 @@ class Compile:
           return HIR.ImgFunc(v_img)
         else:
           assert type(typ) is T.Tuple
-          labels      = ( typ.labels or
+          labels      = ( typ.labels.names if typ.labels is not None else
                           [ str(i) for i in range(0,len(typ.types)) ] )
           return tuple( bind_var(subtyp, f"{name}_{label}")
                         for label, subtyp in zip(labels, typ.types) )
@@ -211,6 +211,7 @@ class Compile:
     return HIR.PureDef( func, arg_vars, hir_rhs )
     
   def _compile_leaf(self,e):
+    #print('comp leaf ', e)
     # extract accesses
     accesses  = []
     while type(e) is AST.Access:
@@ -228,6 +229,7 @@ class Compile:
     assert type(e) is AST.Var, "expected particular nesting..."
 
     # unpack any tuple present by projecting statically
+    #print('post proj unroll : ', e)
     var_tup   = self._ctxt.get(e.name)
     for i in reversed(projs):
       assert isinstance(var_tup, tuple), (f"expected lookup of "
@@ -237,7 +239,7 @@ class Compile:
 
     # now certify that we got a function or param, and generate an access
     if type(x) is HIR.Param:
-      assert e.type == T.num
+      assert acc_e.type == T.num
       return HIR.Eparam(x)
     else:
       assert isinstance(x, HIR.func)

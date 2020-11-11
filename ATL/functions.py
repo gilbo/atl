@@ -9,14 +9,14 @@ import numpy as np
 
 from .py_type_values import *
 
-from .interpreter import Interpret
-from .ast_to_halide import Compile as HCompile
-from .perf_analysis import Analysis
-from .norm_ast    import LetLift, TupleElimination, IndexDownGenUp
-from .deriv_ast   import TotalDerivative
-from .norm_ir     import AST_to_NIR, NIR_to_AST
-from .nir_deriv   import NIR_Deriv
-
+from .interpreter     import Interpret
+from .ast_to_halide   import Compile as HCompile
+from .perf_analysis   import Analysis
+from .norm_ast        import LetLift, TupleElimination, IndexDownGenUp
+from .deriv_ast       import TotalDerivative
+from .norm_ir         import AST_to_NIR, NIR_to_AST
+from .nir_deriv       import NIR_Deriv
+from .nir_filterdown  import NIR_FilterDown
 
 from .checks      import TC_Lite
 
@@ -288,9 +288,24 @@ class Function:
     if not hasattr(self, '_nir_simplify_func_cache'):
       ast           = self._prenorm_ast()
       nir           = AST_to_NIR(ast,use_simplify=True).result()
+      #print('post-simplify NIR')
+      #print(nir)
       ast           = NIR_to_AST(nir).result()
       self._nir_simplify_func_cache = Function(ast, _do_bound_check=False)
     return self._nir_simplify_func_cache
+
+  def _nir_filterdown(self):
+    if not hasattr(self, '_nir_filterdown_func_cache'):
+      ast           = self._prenorm_ast()
+      nir           = AST_to_NIR(ast,use_simplify=True).result()
+      #print('pre')
+      #print(nir)
+      nir           = NIR_FilterDown(nir).result()
+      #print('post-filterdown NIR')
+      #print(nir)
+      ast           = NIR_to_AST(nir).result()
+      self._nir_filterdown_func_cache = Function(ast, _do_bound_check=False)
+    return self._nir_filterdown_func_cache
 
   def _do_partial_eval(self, *args, **kwargs):
     # Step 0: check that not too many arguments were supplied.
@@ -526,4 +541,8 @@ class Function:
     ast             = NIR_to_AST(nir).result()
     #print(ast)
     return Function(ast, _do_bound_check=False)
+
+  def _TEST_NIR_filterdown(self):
+    normed          = self._TEST_PreNormalization()
+    return normed._nir_filterdown()
 

@@ -97,7 +97,7 @@ def macro(func):
     if (len(args.posonlyargs) > 0 or args.vararg is not None or
         len(args.kwonlyargs) > 0 or len(args.kw_defaults) > 0 or
         args.kwarg is not None or len(args.defaults) > 0):
-      error(bad_arg_syntax_errmsg)
+      raise TypeError(bad_arg_syntax_errmsg)
 
     argnames  = []
     for a in args.args:

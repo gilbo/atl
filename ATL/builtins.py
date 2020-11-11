@@ -50,11 +50,18 @@ class BuiltIn:
   def interpret(self,*args):
     raise NotImplementedError()
 
+  # determine whether 0-valued inputs can cause seg-faults
+  def crash_on_zero(self):
+    raise NotImplementedError()
 
 class ScalarBI(BuiltIn):
   def __init__(self,name,n_ary):
     self._n_ary = n_ary
     super().__init__(name)
+
+  # by default assume that scalar built-ins are zero-insensitive
+  def crash_on_zero(self):
+    return False
 
   def typecheck(self,*args):
     if len(args) != self._n_ary:
@@ -149,6 +156,10 @@ class _Ln(ScalarBI):
   def __init__(self):
     super().__init__('ln',1)
 
+  # definitely undefined on zero
+  def crash_on_zero(self):
+    return True
+
   def deriv( self, x, dx, srcinfo=null_srcinfo() ):
     return F.AST.BinOp( '/', dx, x, T.num, srcinfo )
 
@@ -171,6 +182,10 @@ ln = _Ln()
 class _Pow(ScalarBI):
   def __init__(self):
     super().__init__('pow',2)
+
+  # if the exponent is negative, then we can cause a divide by zero
+  def crash_on_zero(self):
+    return True
 
   def deriv( self, x, y, dx, dy, srcinfo=null_srcinfo() ):
     # for efficiency, bind x and y as temporaries

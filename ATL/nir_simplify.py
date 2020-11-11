@@ -225,8 +225,9 @@ def __lt__(lhs,rhs):
 
 # this mapping will map every ivar in range(0,counter)
 # to the least equivalent ivar
+#     option: use greatest equivalent ivar
 @extclass(NIR.pred)
-def eqv_map(p,counter):
+def eqv_map(p,counter, use_greatest=False):
   # initial, no-info equivalence mapping
   emap        = Context()
   for i in range(0,counter):
@@ -255,9 +256,11 @@ def eqv_map(p,counter):
   for p in preds:
     pclass    = type(p)
     if pclass is NIR.Alias:
-      #print(counter, p.lvar, p.rvar)
       x, y    = find(p.lvar), find(p.rvar)
-      if y < x: x,y = y,x
+      if use_greatest:
+        if x < y: x,y = y,x
+      else:
+        if y < x: x,y = y,x
       emap.set(y,x)
     else: pass # nothing to do with non-alias predicates...
 
@@ -265,6 +268,7 @@ def eqv_map(p,counter):
   for i in range(0,counter):
     emap.set( NIR.ivar(i), find(NIR.ivar(i)) )
   return emap
+
 
 # --------------------------------------------------------------------------- #
 
@@ -568,22 +572,58 @@ def simplify(e):
     factors.append(C_FAC(f.expr, idx, f.power).to_factor())
 
   # sum indices
+  # we will also attempt to do substitutions here...
   old_sums,sums = sums, []
+  preds         = [] if conj_pred == NIR.FalseP() else [conj_pred]
+  if type(conj_pred) is NIR.Conj:
+    preds       = [ p for p in conj_pred.preds ]
   #print(' 8 8 sums', old_sums)
   for s in old_sums:
-    sb          = NIR.idx_bind( NIR.ivar(counter), s.range )
-    sums.append(sb)
-    # only remap the first occurence
-    if remap.get(s.ivar) == None:
-      remap.set(s.ivar, sb.ivar)
-    counter    += 1
+    # check if we can eliminate this summed index against a predicate
+    did_elim = False
+    """
+    for i,p in range(0,len(preds)):
+      p = preds[i]
+      if type(p) is NIR.Cmp and p.op == '==':
+        # find the term if it exists
+        match = None
+        for t in p.eq.terms:
+          if t.ivar == s.ivar:
+            match = t
+            break
+        if match:
+          # re-arrange the equality s.t. the following substitution works
+          #   match.ivar == sub
+          c   = -t.coeff
+          sub = NIR.affine( c * p.eq.offset, 
+                            [ NIR.aterm( c * t.coeff, t.ivar, t.size )
+                              for t in p.eq.terms if t != match ])
 
-    lookup    = remap.get( eqv_map.get(s.ivar) )
-    if lookup != sb.ivar:
-      id_preds.append(NIR.Alias(lookup,sb.ivar))
+          # do substitution in the remaining predicates.
+          #new_preds = 
+
+
+          # done processing match, so exit the enumeration loop over the
+          # predicates
+          break
+    """
+
+    if not did_elim:
+      # if we can't eliminate the summed index, then...
+      sb          = NIR.idx_bind( NIR.ivar(counter), s.range )
+      sums.append(sb)
+      # only remap the first occurence
+      if remap.get(s.ivar) == None:
+        remap.set(s.ivar, sb.ivar)
+      counter    += 1
+
+      lookup    = remap.get( eqv_map.get(s.ivar) )
+      if lookup != sb.ivar:
+        id_preds.append(NIR.Alias(lookup,sb.ivar))
 
   #print("ID", id_preds)
   #print("PRE", conj_pred)
+  preds         = [ p.subst(remap) for p in preds ]
   conj_pred     = NIR.Conj([ conj_pred.subst(remap) ] + id_preds).simplify()
   #print('FINAL PRED', conj_pred)
   remap.pop()

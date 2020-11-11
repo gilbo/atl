@@ -8,3 +8,5 @@ __pycache__
 docs/build/
 
 local_notes
+
+.vscode

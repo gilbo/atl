@@ -112,8 +112,17 @@ def shape(t):
   while type(t) is Tensor:
     shp.append(t.range)
     t = t.type
+  assert t is num
   return shp
 del shape
+
+@extclass(_Types.type)
+def shape_or_scalar(t):
+  if t is num:
+    return tuple()
+  assert type(t) is Tensor
+  return t.shape()
+del shape_or_scalar
 
 @extclass(_Types.type)
 def is_const_size(t):
@@ -126,6 +135,7 @@ def is_const_size(t):
     return True
   else:
     return False
+del is_const_size
 
 # --------------------------------------------------------------------------- #
 # Type Matching to account for name differences between Tuples

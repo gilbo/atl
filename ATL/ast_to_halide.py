@@ -251,8 +251,7 @@ class Compile:
         assert type(acc_e.type) is T.Tensor
         rngs      = [ self._get_range(sz) for sz in acc_e.type.shape() ]
         m1        = lambda x: HIR.BinOp('-', x, HIR.Const(1,HIR.i32))
-        clamp     = lambda x,hi: HIR.Max( HIR.Const(0,HIR.i32),
-                                          HIR.Min(m1(hi), x) )
+        clamp     = lambda x,hi: HIR.Clamp( x,HIR.Const(0,HIR.i32), m1(hi) )
         accesses  = [ clamp( ie, bd.extent )
                       for ie,bd in zip(accesses, rngs) ]
       # if this is a scalar, then plug in a default access...
@@ -347,8 +346,7 @@ class Compile:
     elif eclass is AST.Relation:
       bds     = self._rel_sizes[e.name]
       m1      = lambda x: HIR.BinOp('-', x, HIR.Const(1,HIR.i32))
-      clamp   = lambda x,hi: HIR.Max( HIR.Const(0,HIR.i32),
-                                      HIR.Min(m1(hi), x) )
+      clamp   = lambda x,hi: HIR.Clamp( x, HIR.Const(0,HIR.i32), m1(hi) )
       args    = [ clamp( self._compile_expr(ie), bd.extent )
                   for ie,bd in zip(e.args, bds) ]
       Rfunc   = self._ctxt.get( e.name )

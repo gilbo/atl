@@ -364,9 +364,10 @@ def simplify(e):
 
   elif eclass is NIR.BuiltIn:
     args        = [ a.simplify() for a in e.args ]
-    if all([ type(a) is NIR.Const for a in args ]):
-      raise NotImplementedError('Const Propagation through BuiltIns')
-    esimpl      = NIR.BuiltIn( e.f, args, e.type )
+    esimpl      = e.f.simplify(e, args)
+    #if all([ type(a) is NIR.Const for a in args ]):
+    #  raise NotImplementedError('Const Propagation through BuiltIns')
+    #esimpl      = NIR.BuiltIn( e.f, args, e.type )
 
   elif eclass is NIR.Sum:
     # simplify and accumulate terms

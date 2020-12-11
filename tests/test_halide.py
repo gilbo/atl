@@ -143,18 +143,30 @@ class TestHalideWrapper(unittest.TestCase):
 
         if use_auto:
             print("Using auto-scheduler")
-            C.hwrap_autoschedule_func(blur_y)
-        
-        # run tests
-        t0       = time.perf_counter()
-        C.hwrap_realize_func(blur_y,bufO)
-        t1       = time.perf_counter()
-        C.hwrap_realize_func(blur_y,bufO)
-        t2       = time.perf_counter()
-        for k in range(0,10):
+            pipe = C.hwrap_new_pipeline(1,(1 * hw_func_t)(blur_y))
+
+            # run tests
+            t0       = time.perf_counter()
+            C.hwrap_realize_pipeline(pipe, 1, (1*halide_buffer_t)(bufO))
+            t1       = time.perf_counter()
+            C.hwrap_realize_pipeline(pipe, 1, (1*halide_buffer_t)(bufO))
+            t2       = time.perf_counter()
+            for k in range(0,10):
+                C.hwrap_realize_pipeline(pipe, 1, (1*halide_buffer_t)(bufO))
+            t3       = time.perf_counter()
+            print('blur times', t1-t0,t2-t1,t3-t2)
+
+        else:
+            # run tests
+            t0       = time.perf_counter()
             C.hwrap_realize_func(blur_y,bufO)
-        t3       = time.perf_counter()
-        print('blur times', t1-t0,t2-t1,t3-t2)
+            t1       = time.perf_counter()
+            C.hwrap_realize_func(blur_y,bufO)
+            t2       = time.perf_counter()
+            for k in range(0,10):
+                C.hwrap_realize_func(blur_y,bufO)
+            t3       = time.perf_counter()
+            print('blur times', t1-t0,t2-t1,t3-t2)
 
     def test_blur_0(self):
         print()

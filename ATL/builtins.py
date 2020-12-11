@@ -47,12 +47,19 @@ class BuiltIn:
   def halide_compile(self,*args):
     raise NotImplementedError()
 
+  def C_compile(self,*args):
+    raise NotImplementedError()
+
   def interpret(self,*args):
     raise NotImplementedError()
 
   # determine whether 0-valued inputs can cause seg-faults
   def crash_on_zero(self):
     raise NotImplementedError()
+
+  # optionally can implement some kind of simplification...
+  def simplify(self,orig_node,args):
+    return N.NIR.BuiltIn( orig_node.f, args, orig_node.type )
 
 class ScalarBI(BuiltIn):
   def __init__(self,name,n_ary):
@@ -73,6 +80,14 @@ class ScalarBI(BuiltIn):
       elif a is not T.num:
         raise _BErr(f"expected argument {k} to have type Num, got {a}")
     return T.num
+
+  def simplify(self,orig_node,args):
+    if all([ type(a) is N.NIR.Const for a in args ]):
+      # implement constant propagation?
+      val = self.interpret( *[ a.val for a in args ] )
+      return N.NIR.Const( val, orig_node.type )
+    else:
+      return super().simplify(orig_node,args)
 
 
 # --------------------------------------------------------------------------- #
@@ -97,6 +112,9 @@ class _Sin(ScalarBI):
 
   def halide_compile( self, x ):
     return HIR.MathFn1("sin", x)
+
+  def C_compile(self, x):
+    return f"sin({x})"
 
   def interpret(self,x):
     return math.sin(x)
@@ -124,6 +142,9 @@ class _Cos(ScalarBI):
   def halide_compile( self, x ):
     return HIR.MathFn1("cos", x)
 
+  def C_compile(self, x):
+    return f"cos({x})"
+
   def interpret(self,x):
     return math.cos(x)
 cos = _Cos()
@@ -147,6 +168,9 @@ class _Sqrt(ScalarBI):
 
   def halide_compile( self, x ):
     return HIR.MathFn1("sqrt", x)
+
+  def C_compile(self, x):
+    return f"sqrt({x})"
 
   def interpret(self,x):
     return math.sqrt(x)
@@ -174,6 +198,9 @@ class _Ln(ScalarBI):
 
   def halide_compile( self, x ):
     return HIR.MathFn1("log", x)
+
+  def C_compile(self, x):
+    return f"ln({x})"
 
   def interpret(self,x):
     return math.log(x)
@@ -222,6 +249,9 @@ class _Pow(ScalarBI):
   def halide_compile( self, x, y ):
     return HIR.Pow(x,y)
 
+  def C_compile(self, x, y):
+    return f"pow({x},{y})"
+
   def interpret(self,x,y):
     return x ** y
 pow = _Pow()
@@ -245,6 +275,9 @@ class _Select_GT(ScalarBI):
   def halide_compile( self, x, y, a, b ):
     return HIR.Select( HIR.BinOp(">=",x,y), a, b )
 
+  def C_compile(self, x, y, a, b):
+    return f"(({x} >= {y})? {a} : {b})"
+
   def interpret(self,x,y,a,b):
     return a if x > y else b
 select_gt = _Select_GT()
@@ -267,6 +300,9 @@ class _Max(ScalarBI):
 
   def halide_compile( self, a, b ):
     return HIR.Max( a,b )
+
+  def C_compile(self, a, b):
+    return f"fmax({a},{b})"
 
   def interpret(self,a,b):
     return max(a,b)
@@ -300,6 +336,9 @@ class _Min(ScalarBI):
 
   def halide_compile( self, a, b ):
     return HIR.Min( a,b )
+
+  def C_compile(self, a, b):
+    return f"fmin({a},{b})"
 
   def interpret(self,a,b):
     return min(a,b)

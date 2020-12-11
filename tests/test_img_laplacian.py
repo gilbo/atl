@@ -60,6 +60,14 @@ class TestImgLaplacian(unittest.TestCase, FunctionTestCase):
     w, h          = indata[0:2]
     d_out         = self.rand.uniform(-2,2)
     return (indata,din,d_out)
+
+  def rand_perf_inout(self):
+    w, h      = 1000,1000
+    img       = self.rand.rand_ndarray([h,w])
+    dimg      = self.rand.rand_ndarray([h,w])
+    d_out         = self.rand.uniform(-2,2)
+    return ((w,h,img),(dimg,),d_out)
+
     
   def data_zeros(self):
     w, h      = 4, 4

@@ -63,6 +63,7 @@ module HIR {
            | MathFn1   ( string name, expr arg )
            | Min       ( expr lhs, expr rhs )
            | Max       ( expr lhs, expr rhs )
+           | Clamp     ( expr val, expr lo, expr hi )
            | Pow       ( expr base, expr exp )
            | ATan2     ( expr y, expr x )
            | Select    ( expr pred, expr lhs, expr rhs )
@@ -149,6 +150,8 @@ def _str_rep(e,prec=0):
     elif eclass is HIR.Min or eclass is HIR.Max:
         fname = "Min" if eclass is HIR.Min else "Max"
         s = f"{fname}({e.lhs},{e.rhs})"
+    elif eclass is HIR.Clamp:
+        s = f"Clamp({e.val},{e.lo},{e.hi})"
     elif eclass is HIR.Pow:
         s = f"pow({e.base},{e.exp})"
     elif eclass is HIR.ATan2:
@@ -368,6 +371,9 @@ class _HIR_Compilation:
             ee  = C.hwrap_min(self.get_expr(e.lhs), self.get_expr(e.rhs))
         elif eclass is HIR.Max:
             ee  = C.hwrap_max(self.get_expr(e.lhs), self.get_expr(e.rhs))
+        elif eclass is HIR.Clamp:
+            ee  = C.hwrap_clamp(self.get_expr(e.val),
+                              self.get_expr(e.lo), self.get_expr(e.hi))
         elif eclass is HIR.Pow:
             ee  = C.hwrap_pow(self.get_expr(e.base), self.get_expr(e.exp))
         elif eclass is HIR.ATan2:
@@ -421,6 +427,9 @@ class _HIR_JIT_Execution(_HIR_Compilation):
             p_obj   = self._params[p_IR]
             val_ref = ctypes.byref(p_IR.typ.ctype()(val))
             C.hwrap_set_param(p_obj,val_ref)
+            assert p_IR.typ.lanes == 1
+            val_expr = getattr(C,f"hwrap_{p_IR.typ.base}_to_expr")(val)
+            C.hwrap_set_param_estimate(p_obj,val_expr)
         
     def _jit_compile(self, params, imgs, outputs):
         if hasattr(self,'_pipeline_obj'): return
@@ -447,9 +456,12 @@ class _HIR_JIT_Execution(_HIR_Compilation):
         n_out   = len(outputs)
         c_fs    = (n_out * hw_func_t)(*out_fs)
         self._pipeline_obj = C.hwrap_new_pipeline(n_out,c_fs)
-        #C.hwrap_autoschedule_pipeline(self._pipeline_obj)
+        C.hwrap_autoschedule_pipeline(self._pipeline_obj)
+        #C.hwrap_pipeline_print_loop_nest(self._pipeline_obj)
         
     def _exec(self, params, imgs, outputs):
+        #print('executing...')
+        #print(self._pipe)
         self._check_args(params,imgs,outputs)
         self._jit_compile(params,imgs,outputs)
         

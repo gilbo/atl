@@ -11,6 +11,7 @@ from .py_type_values import *
 
 from .interpreter     import Interpret
 from .ast_to_halide   import Compile as HCompile
+from .lower_to_c      import CJit
 from .perf_analysis   import Analysis
 from .norm_ast        import LetLift, TupleElimination, IndexDownGenUp
 from .deriv_ast       import TotalDerivative
@@ -173,8 +174,17 @@ class Function:
     self._jit_halide_compiled(vs, szs, rels, output)
     return self._pack_return_scalars(self._ast.rettype, output)
 
+  def cjit(self, *args, **kwargs):
+    vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
+    if not hasattr(self, '_cjit_compiled'):
+      #print(self._prenorm_ast())
+      self._cjit_compiled = CJit(self._prenorm_ast())
+    self._cjit_compiled(vs, szs, rels, output)
+    return self._pack_return_scalars(self._ast.rettype, output)
+
   def __call__(self, *args, **kwargs):
-    return self.jit_exec(*args,**kwargs)
+    #return self.jit_exec(*args,**kwargs)
+    return self.cjit(*args,**kwargs)
     #return self.interpret(*args,**kwargs)
 
   def perf_counts(self, *args, **kwargs):
@@ -538,6 +548,7 @@ class Function:
     normed          = self._TEST_PreNormalization()
     nir             = AST_to_NIR(normed._ast,use_simplify=True).result()
     nir             = NIR_Deriv(nir, dvars, output).get_adjoint()
+    #print(nir)
     ast             = NIR_to_AST(nir).result()
     #print(ast)
     return Function(ast, _do_bound_check=False)

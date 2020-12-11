@@ -112,9 +112,7 @@ class TestImgARAP(unittest.TestCase, FunctionTestCase):
     
     return DE_ARAP
 
-  def rand_input(self):
-    W,H       = self.rand.randint(5,8), self.rand.randint(5,8)
-
+  def arap_gen_input(self, W, H):
     w_fit     = self.rand.uniform(0.8,1.2)
     w_reg     = self.rand.uniform(0.8,1.2)
 
@@ -151,6 +149,10 @@ class TestImgARAP(unittest.TestCase, FunctionTestCase):
     return (W,H, w_fit,w_reg, Offsets,Angle,
             UrShape,Constraints, C_valid,Mask)
 
+  def rand_input(self):
+    W,H       = self.rand.randint(5,8), self.rand.randint(5,8)
+    return self.arap_gen_input(W,H)
+
   def rand_deriv_input(self):
     (W,H, w_fit,w_reg, Offsets,Angle,
           UrShape,Constraints, C_valid,Mask) = self.rand_input()
@@ -166,6 +168,20 @@ class TestImgARAP(unittest.TestCase, FunctionTestCase):
     W, H          = indata[0:2]
     d_out         = self.rand.uniform(-2,2)
     return (indata,din,d_out)
+
+  def rand_perf_inout(self):
+    W, H          = 100,100
+    (W,H, w_fit,w_reg, Offsets,Angle,
+          UrShape,Constraints, C_valid,Mask) = self.arap_gen_input(W,H)
+
+    dOffsets  = self.rand.rand_ndarray([W,H,2])
+    dAngle    = self.rand.rand_ndarray([W,H])
+
+    d_out         = self.rand.uniform(-2,2)
+
+    return ((W,H, w_fit,w_reg, Offsets,Angle,
+                  UrShape,Constraints, C_valid,Mask), (dOffsets,dAngle),
+                                                      d_out)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

@@ -38,7 +38,6 @@ class TestMask(unittest.TestCase, FunctionTestCase):
     
     return Dmask_lapl
 
-
   def rand_input(self):
     w, h      = self.rand.randint(10,20), self.rand.randint(10,20)
     img       = self.rand.rand_ndarray([h,w])
@@ -55,5 +54,13 @@ class TestMask(unittest.TestCase, FunctionTestCase):
     w, h          = indata[0:2]
     d_out         = self.rand.uniform(-2,2)
     return (indata,din,d_out)
+
+  def rand_perf_inout(self):
+    w, h      = 1000,1000
+    img       = self.rand.rand_ndarray([h,w])
+    msk       = self.rand.rand_bool_array([h,w])
+    dimg      = self.rand.rand_ndarray([h,w])
+    d_out     = self.rand.uniform(-2e3,2e3)
+    return ((w,h,img,msk),(dimg,),d_out)
 
 

@@ -4,6 +4,7 @@ from ATL import *
 
 import numpy as np
 import random
+import time
 
 from functools import wraps
 from collections import namedtuple
@@ -56,6 +57,9 @@ class FunctionTestCase:
     raise NotImplementedError()
 
   def rand_deriv_output(self):
+    raise NotImplementedError()
+
+  def rand_perf_inout(self):
     raise NotImplementedError()
 
   def n_rand_tests(self):
@@ -143,8 +147,24 @@ class FunctionTestCase:
 
     return self._ftc_rand_inout_data
 
-  # --------------------------- #
+  def discover_rand_perf_inout(self):
+    if not hasattr(self, '_ftc_rand_perf_inout_data'):
+      self._init_rand()
 
+      data_cases  = []
+      n_default   = self.n_rand_tests()
+
+      for i in range(0,n_default):
+        in_data,din,dout        = self.rand_perf_inout()
+        data_cases.append( DInOutCase(f"rand_perf_{i}",in_data,din,dout) )
+
+      self._ftc_rand_perf_inout_data = data_cases
+
+    return self._ftc_rand_perf_inout_data
+
+
+  # --------------------------- #
+  
   def test_print(self):
     self.gen_func_memo()
 
@@ -284,7 +304,7 @@ class FunctionTestCase:
     adj_func              = func._TEST_NIR_Adjoint(**deriv_sig)
     adj_func              = adj_func._TEST_NIR_filterdown()
     ref_dfunc             = self.gen_deriv_memo()
-    #print(adj_func)
+    print(adj_func)
     for fname,in_data,d_in,d_out in self.discover_rand_adjoint_inout():
       with self.subTest(data=fname):
         #print('D_IN\n',d_in)
@@ -332,14 +352,69 @@ class FunctionTestCase:
     #deriv                 = orig._TEST_NIR_Deriv(**deriv_sig)
     adj_func              = orig._TEST_NIR_Adjoint(**deriv_sig)
     adj_func              = adj_func._TEST_NIR_filterdown()
-    #print(adj_func)
+    filterdown            = orig._TEST_NIR_filterdown()
+    print(filterdown)
     #fname,in_data,d_in_data = self.discover_rand_deriv_datum()
     fname,in_data,d_in,d_out = self.discover_rand_adjoint_inout()[0]
     with self.subTest(data=fname):
+      print(">> orig")
+      orig.perf_counts(*in_data)
       print(">> nir-opt")
       opt.perf_counts(*in_data)
+      print(">> nir-filterdown")
+      filterdown.perf_counts(*in_data)
       print(">> adjoint")
       adj_func.perf_counts(*( in_data+(d_out,) ))
+  
+
+  def test_wallclock_perf(self):
+    orig                  = self.gen_func_memo()
+    opt                   = orig._TEST_NIR_Roundtrip_YesSimp()
+    deriv_sig             = self.gen_deriv_sig()
+    #deriv                 = orig._TEST_NIR_Deriv(**deriv_sig)
+    adj_func              = orig._TEST_NIR_Adjoint(**deriv_sig)
+    adj_func              = adj_func._TEST_NIR_filterdown()
+    filterdown            = orig._TEST_NIR_filterdown()
+    #print(opt)
+
+    def do_timing(f, args, n_runs=10):
+      # make sure it's jit-ed
+      out_buf = f(*args)
+      def build_out(out_buf):
+        if type(out_buf) is tuple:
+          return tuple( build_out(t) for t in out_buf )
+        elif isinstance(out_buf, tuple):
+          return type(out_buf)(*[ build_out(t) for t in out_buf ])
+        elif type(out_buf) == float:
+          return self.rand.rand_ndarray((1,))
+        else:
+          return out_buf
+      out_buf = build_out(out_buf)
+
+      lo, hi, avg = 1.0e6, 0.0, 0.0
+      for i in range(0,n_runs):
+        start   = time.perf_counter()
+        f(*args, output=out_buf)
+        stop    = time.perf_counter()
+
+        dt = stop-start
+        lo = lo if lo < dt else dt
+        hi = hi if hi > dt else dt
+        avg += dt
+
+      print(f"  lo: {lo}  hi: {hi}  avg: {avg/n_runs}")
+      return { 'lo':lo, 'hi':hi, 'avg':avg/n_runs }
+
+    fname,in_data,d_in,d_out = self.discover_rand_perf_inout()[0]
+    with self.subTest(data=fname):
+      print(">> orig")
+      do_timing(orig, in_data)
+      print(">> nir-opt")
+      do_timing(opt, in_data)
+      print(">> nir-filterdown")
+      do_timing(filterdown, in_data)
+      print(">> adjoint")
+      do_timing(adj_func, in_data+(d_out,) )
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -360,18 +435,22 @@ class RandKey:
     self._seed            = seed
     self.to_global_state()
 
-  def rand_ndarray( self, shape, gen=(lambda self: self.uniform(-2,2)) ):
-    arr = np.zeros(shape, order='F')
-    with np.nditer(arr, op_flags=['readwrite']) as it:
-      for x in it:
-        x[...] = gen(self)
+  def rand_ndarray( self, shape ):
+    arr = np.asfortranarray(np.random.random_sample(size=shape))
+    arr = 4.0*arr - 2.0
+    #arr = np.zeros(shape, order='F')
+    #with np.nditer(arr, op_flags=['readwrite']) as it:
+    #  for x in it:
+    #    x[...] = gen(self)
     return arr
 
   def rand_bool_array( self, shape ):
-    arr = np.ndarray(shape, dtype=bool, order='F')
-    with np.nditer(arr, op_flags=['readwrite']) as it:
-      for x in it:
-        x[...] = self.choice([True,False])
+    arr = np.random.choice(a=[True,False], size=shape, p=[0.5,0.5])
+    arr = np.asfortranarray(arr)
+    #np.ndarray(shape, dtype=bool, order='F')
+    #with np.nditer(arr, op_flags=['readwrite']) as it:
+    #  for x in it:
+    #    x[...] = self.choice([True,False])
     return arr
 
 # patch methods from random into the RandKey class

@@ -63,6 +63,13 @@ class TestBlur(unittest.TestCase, FunctionTestCase):
     d_out         = self.rand.rand_ndarray([h,w])
     return (indata,din,d_out)
 
+  def rand_perf_inout(self):
+    w, h      = 1000,1000
+    img       = self.rand.rand_ndarray([h,w])
+    dimg      = self.rand.rand_ndarray([h,w])
+    d_out     = self.rand.rand_ndarray([h,w])
+    return ((w,h,img),(dimg,),d_out)
+
   def data_zeros(self):
     w, h      = 4, 4
     indata    = (w,h,np.zeros([h,w],order='F'))

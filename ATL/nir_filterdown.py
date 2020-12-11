@@ -108,7 +108,7 @@ class NIR_FilterDown:
       #     through non-linear functions safely
       #        SUM[i1] (SUM[i0] [i0 == i1] * e)
       # lo is an offset to the indexing of sum_idx indices in preds
-      def sums_at_most_one(sum_idx, preds, lo=0):
+      def sums_at_most_once(sum_idx, preds, lo=0):
         sumlen = len(sum_idx)
         if sumlen == 0:
           return []
@@ -136,23 +136,64 @@ class NIR_FilterDown:
 
         return sum_used
 
+      def any_summed(p, sum_idx, lo=0):
+        def tst(i):
+          ishift = i.name-lo
+          return 0 <= ishift < len(sum_idx) and sum_idx[ishift]
+        ptyp      = type(p)
+        if ptyp is NIR.Alias:
+          return tst(p.lvar) or tst(p.rvar)
+        elif ptyp is NIR.Cmp:
+          ivars = [ a.ivar for a in p.eq.terms if a.ivar is not None ]
+          return any( tst(i) for i in ivars )
+        elif ptyp is NIR.Relation:
+          return any( tst(a) for a in p.args )
+        elif ptyp is NIR.Conj or ptyp is NIR.Disj:
+          return any( any_summed(pp,sum_idx,lo) for pp in p.preds )
+        else:
+          return False
+
 
       # if this is a point-wise function, then we can't:
       #   (a) push the sums through it without linearity
+      #       (caveat: or the guarantee that the sum is over at most
+      #                one non-zero value, which is a more important case)
       #   (b) push the predicates through it without
       #       a guarantee that zero-valued inputs will not cause crashes
       # We will try to propagate predicates, but wrap this in a summation
       # regardless.
-      if etyp is NIR.BuiltIn:
-        apreds  = [] if e.f.crash_on_zero() else preds
-        args    = [ self.pushdown( a, [ False for _ in shape ], apreds )
-                    for a in e.args ]
-        e       = NIR.BuiltIn(e.f, args, e.type)
-      elif etyp is NIR.Pow:
-        assert e.power != 1 and e.power != 0
-        apreds  = [] if e.power < 0 else preds
-        base    = self.pushdown( e.base, [ False for _ in shape ], apreds )
-        e       = NIR.Pow(base, e.power, e.type)
+      if etyp is NIR.BuiltIn or etyp is NIR.Pow:
+        if etyp is NIR.Pow:
+          assert e.power != 1 and e.power != 0
+          crash_on_zero = e.power < 0
+        else:
+          crash_on_zero = e.f.crash_on_zero()
+
+        if crash_on_zero:
+          # don't push any predicates or sums down
+          sum_pushed  = [ False for _ in sum_idx ]
+          arg_preds   = []
+        else:
+          # otherwise, we can push-down all of the predicates
+          # and can sum any index where we are guaranteed that the
+          # summation will be over at most 1 non-zero value
+          sum_pushed  = sums_at_most_once(sum_idx, preds)
+          arg_preds   = preds
+
+        if etyp is NIR.Pow:
+          base  = self.pushdown( e.base, sum_pushed, arg_preds )
+          e     = NIR.Pow(base, e.power, base.type)
+          shape = base.type.shape_or_scalar()
+        else:
+          args  = [ self.pushdown( a, sum_pushed, arg_preds ) for a in e.args ]
+          e     = NIR.BuiltIn(e.f, args, args[0].type)
+          shape = args[0].type.shape_or_scalar()
+
+        # account for any tensor indices that we've eliminated via summation
+        sum_idx = [ si for si,sp in zip(sum_idx,sum_pushed) if not sp ]
+        preds   = [ p for p in preds if not any_summed(p, sum_pushed) ]
+        do_wrap = any(sum_idx) or len(preds) > 0
+
 
       # Construct the term SUM[idx] [preds] * e
       # explicitly, and apply simplification to it.
@@ -197,7 +238,10 @@ class NIR_FilterDown:
       # simplified away all of our summation and predicates, in which
       # case we should re-start push-down anew on this sub-expression
       e = wrap_e
-      if type(e) is not NIR.Contract:
+      if type(e) is NIR.Pow and etyp is NIR.Pow:
+        # prevent endless recursion
+        return e
+      elif type(e) is not NIR.Contract:
         return self.pushdown( e, [ False for _ in shape ], [] )
       else:
         # otherwise, we must unpack the contraction, and thereby
@@ -222,25 +266,9 @@ class NIR_FilterDown:
           elif ptyp is NIR.Relation:
             return all( tst(a) for a in p.args )
           elif ptyp is NIR.Conj or ptyp is NIR.Disj:
-            return all( all_in_range(pp) for pp in p.preds )
+            return all( all_in_range(pp,lo,hi) for pp in p.preds )
           else:
             return True
-        def any_summed(p, lo, sum_idx):
-          def tst(i):
-            ishift = i.name-lo
-            return 0 <= ishift < len(sum_idx) and sum_idx[ishift]
-          ptyp      = type(p)
-          if ptyp is NIR.Alias:
-            return tst(p.lvar) or tst(p.rvar)
-          elif ptyp is NIR.Cmp:
-            ivars = [ a.ivar for a in p.eq.terms if a.ivar is not None ]
-            return any( tst(i) for i in ivars )
-          elif ptyp is NIR.Relation:
-            return any( tst(a) for a in p.args )
-          elif ptyp is NIR.Conj or ptyp is NIR.Disj:
-            return any( any_summed(pp) for pp in p.preds )
-          else:
-            return False
         # find a list (with possible duplicates) of all indices in the
         # lo,hi range that occur within predicate `p`
         def range_filter(p, lo,hi):
@@ -337,7 +365,7 @@ class NIR_FilterDown:
               # otherwise, we can safely push all predicates through
               # but not sums... UNLESS we can certify that the
               # predicate/summation combo sums over exactly 0 or 1 elem...
-              sum_idx = sums_at_most_one(sum_idx, preds, lo)
+              sum_idx = sums_at_most_once(sum_idx, preds, lo)
 
           # whether we have the original set of predicates
           # from factor_local(), or filtered by need to push through
@@ -349,7 +377,7 @@ class NIR_FilterDown:
           # are being pushed down as summations.  In that case,
           # we may be able to save work by both pushing the predicate
           # down and retaining it at this contraction.
-          to_remove = [ p for p in preds if any_summed(p, lo, sum_idx) ]
+          to_remove = [ p for p in preds if any_summed(p, sum_idx, lo) ]
           e_preds = [ p for p in e_preds if p not in to_remove ]
 
           # remap the predicate list

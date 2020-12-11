@@ -52,6 +52,14 @@ class TestImgGradient(unittest.TestCase, FunctionTestCase):
     d_out_y       = self.rand.rand_ndarray([h,w])
     return (indata,din,(d_out_x,d_out_y))
 
+  def rand_perf_inout(self):
+    w, h      = 1000,1000
+    img       = self.rand.rand_ndarray([h,w])
+    dimg      = self.rand.rand_ndarray([h,w])
+    d_out_x       = self.rand.rand_ndarray([h,w])
+    d_out_y       = self.rand.rand_ndarray([h,w])
+    return ((w,h,img),(dimg,),(d_out_x,d_out_y))
+
   def data_zeros(self):
     w, h      = 4, 4
     img       = np.zeros([h,w],order='F')

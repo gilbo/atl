@@ -7,16 +7,21 @@ def _shell(cstr):
     subprocess.run(cstr, check=True, shell=True)
 
 # Declare where the halide distribution is at
-_HALIDE_PATH    = os.path.expanduser('~/install/halide')
+_HALIDE_PATH    = os.path.expanduser('~/install/Halide-10.0.0-x86-64-osx')
 
 # Derive the Halide build locations
 _HALIDE_LIB     = os.path.join(_HALIDE_PATH,'lib')
 _HALIDE_INC     = os.path.join(_HALIDE_PATH,'include')
+_HALIDE_DYN     = os.path.join(_HALIDE_LIB,'libHalide.10.dylib')
 _HALIDE_STATIC  = os.path.join(_HALIDE_LIB,'libHalide.a')
+
+_USE_STATIC     = False
 
 # Make sure that the Halide library is actually there
 if not os.path.isfile(_HALIDE_STATIC):
-    raise IOError(f"Halide library not found at {HALIDE_STATIC}")
+    raise IOError(f"Halide library not found at {_HALIDE_STATIC}")
+if not os.path.isfile(_HALIDE_DYN):
+    raise IOError(f"Halide library not found at {_HALIDE_DYN}")
 
 # Make sure that we have a cache directory
 _HERE_DIR       = os.path.dirname(os.path.abspath(__file__))
@@ -147,7 +152,8 @@ class HWGen:
         
         cpp_time    = get_time(CPP)
         so_time     = get_time(SO)
-        h_time      = get_time(_HALIDE_STATIC)
+        h0_time     = get_time(_HALIDE_STATIC)
+        h1_time     = get_time(_HALIDE_DYN)
         
         # Check whether the CPP file needs to be re-written
         write_cpp   = True if cpp_time is None else False
@@ -164,10 +170,19 @@ class HWGen:
         # Check whether the SO needs to be re-compiled
         if (not cpp_time or not so_time or
             so_time < cpp_time or
-            so_time < h_time):
-                cmd = (f"clang++ -Wall -Werror -fPIC -O3 -shared -std=c++11 "
-                       f"-I {_HALIDE_INC} {_HALIDE_STATIC} -lz "
-                       f"-o {SO} {CPP}")
+            so_time < h0_time or
+            so_time < h1_time):
+                if _USE_STATIC:
+                    cmd = (f"clang++ -Wall -Werror -fPIC -O3 -shared "
+                           f"-std=c++11 "
+                           f"-I {_HALIDE_INC} {_HALIDE_STATIC} -lz "
+                           f"-o {SO} {CPP}")
+                else:
+                    cmd = (f"clang++ -Wall -Werror -fPIC -O3 -shared "
+                           f"-std=c++11 "
+                           f"-Wl,-rpath,'{_HALIDE_LIB}' "
+                           f"-I {_HALIDE_INC} {_HALIDE_DYN} -lz "
+                           f"-o {SO} {CPP}")
                 print(cmd)
                 _shell(cmd)
                 if HWGen._module != None:
@@ -368,7 +383,7 @@ HWGen.fun("hwrap_set_func_bound_estimate",
     [('f',hw_func_t),('d','i32'),
      ('min',hw_expr_t),('extent',hw_expr_t)],'v',"""
     auto args = _from_F(f)->args();
-    _from_F(f)->estimate(args[d],*_from_E(min),*_from_E(extent));""")
+    _from_F(f)->set_estimate(args[d],*_from_E(min),*_from_E(extent));""")
 
 # VAR
 HWGen.fun("hwrap_new_var",[('name','s')],hw_var_t,"""
@@ -380,9 +395,9 @@ HWGen.fun("hwrap_new_rdom",
      ('n_dim','i32'),
      ('ranges',ctypes.POINTER(hw_expr_t)),],
     hw_rdom_t,"""
-    std::vector< std::pair< Halide::Expr, Halide::Expr > > r;
+    Halide::Region r;
     for(int k=0; k<n_dim; k++)
-        r.push_back(std::make_pair( *_from_E(ranges[2*k]),
+        r.push_back(Halide::Range( *_from_E(ranges[2*k]),
                                     *_from_E(ranges[2*k+1]) ));
     return _to_R(new Halide::RDom(r,name));""")
 
@@ -421,7 +436,7 @@ HWGen.fun("hwrap_new_img",
     return _to_I(new Halide::ImageParam(Halide::Type(typ), n_dim, name));""")
 HWGen.fun("hwrap_set_img_bound_estimate",
     [('img',hw_img_t),('d','i32'),('min',hw_expr_t),('extent',hw_expr_t)],'v',"""
-    _from_I(img)->dim(d).set_bounds_estimate(*_from_E(min),*_from_E(extent));""")
+    _from_I(img)->dim(d).set_estimate(*_from_E(min),*_from_E(extent));""")
 HWGen.fun("hwrap_set_img",
     [('img',hw_img_t),('input',ctypes.POINTER(halide_buffer_t))],'v',"""
     _from_I(img)->set(Halide::Buffer<>(*input));""")
@@ -439,7 +454,7 @@ HWGen.fun("hwrap_var_to_expr",[('v_handle',hw_var_t)],hw_expr_t,"""
     return _to_E(new Halide::Expr( *(_from_V(v_handle)) ));""")
 # converts an RDom to a Int32-type Expr
 HWGen.fun("hwrap_rdom_to_expr",[('r_handle',hw_rdom_t)],hw_expr_t,"""
-    return _to_E(new Halide::Expr( *(_from_R(r_handle)) ));""")
+    return _to_E(new Halide::Expr( (_from_R(r_handle))->x ));""")
 # converts a Param to an Expr
 HWGen.fun("hwrap_param_to_expr",[('p_handle',hw_param_t)],hw_expr_t,"""
     return _to_E(new Halide::Expr( *(_from_P(p_handle)) ));""")
@@ -473,6 +488,13 @@ HWGen.fun("hwrap_min",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
 HWGen.fun("hwrap_max",[('lhs',hw_expr_t),('rhs',hw_expr_t)],hw_expr_t,"""
     return _to_E(new Halide::Expr(Halide::max(*_from_E(lhs),
                                               *_from_E(rhs))));""")
+HWGen.fun("hwrap_clamp",
+          [('val',hw_expr_t),
+           ('lo',hw_expr_t),
+           ('hi',hw_expr_t)],hw_expr_t,"""
+    return _to_E(new Halide::Expr(Halide::clamp(*_from_E(val),
+                                                *_from_E(lo),
+                                                *_from_E(hi))));""")
 # math library unary functions
 for nm in ['sin','cos','tan','asin','acos','atan',
            'log','exp','sqrt']:
@@ -545,13 +567,29 @@ HWGen.fun("hwrap_realize_pipeline",
     Halide::Realization ra(bufs);
     _from_PL(self)->realize(ra, Halide::get_host_target());""")
 
-HWGen.fun("hwrap_autoschedule_func",[('f',hw_func_t)],'v',"""
-    std::vector<Halide::Internal::Function> fs;
-    fs.push_back(_from_F(f)->function());
-    auto s = Halide::Internal::generate_schedules(
-                fs,
-                Halide::get_host_target(),
-                Halide::MachineParams::generic());""")
+# deprecated
+#HWGen.fun("hwrap_autoschedule_func",[('f',hw_func_t)],'v',"""
+#    std::vector<Halide::Internal::Function> fs;
+#    fs.push_back(_from_F(f)->function());
+#    auto s = Halide::Internal::generate_schedules(
+#                fs,
+#                Halide::get_host_target(),
+#                Halide::MachineParams::generic());""")
+
+# In order to use autoschedulers, load them as plugins...
+HWGen.fun("hwrap_load_autoscheduler",
+    [('name','s')],'v',"""
+    std::string nm = name;
+    Halide::load_plugin(nm);""")
+
+def _load_autoscheduler(mod):
+    ld_as       = getattr(mod,"hwrap_load_autoscheduler")
+    as_name     = "libautoschedule_mullapudi2016.so"
+    #as_name     = "libautoschedule_li2018.so"
+    #as_name     = "libautoschedule_adams2019.so"
+    filename    = os.path.join(_HALIDE_LIB,as_name)
+    ld_as(filename.encode('utf-8'))
+HWGen.on_gen(_load_autoscheduler)
 
 HWGen.fun("hwrap_autoschedule_pipeline",
     [('self',hw_pipeline_t)],'v',"""
@@ -561,6 +599,9 @@ HWGen.fun("hwrap_autoschedule_pipeline",
 
 HWGen.fun("hwrap_func_print_loop_nest",[('f',hw_func_t)],'v',"""
     _from_F(f)->print_loop_nest();""")
+
+HWGen.fun("hwrap_pipeline_print_loop_nest",[('self',hw_pipeline_t)],'v',"""
+    _from_PL(self)->print_loop_nest();""")
 
 # --------------------------------------------------------------------------- #
 
@@ -577,7 +618,9 @@ del _shell
 del _HALIDE_PATH
 del _HALIDE_LIB
 del _HALIDE_INC
+del _HALIDE_DYN
 del _HALIDE_STATIC
+del _USE_STATIC
 del _HERE_DIR
 del _C_DIR
 del _clean_cache

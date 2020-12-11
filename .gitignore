@@ -4,6 +4,7 @@ __pycache__
 .DS_Store
 
 ._halide_c_wrap_cache/
+.atl_c_cache/
 
 docs/build/
 

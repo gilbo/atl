@@ -115,10 +115,8 @@ class TestCatenary(unittest.TestCase, FunctionTestCase):
     N, link_w, K_spring, gravity, x   = self.rand_input()
 
     scale     = (link_w/2)
-    dx        = self.rand.rand_ndarray(
-                    [N,2],
-                    gen = (lambda self: self.uniform(-scale,scale))
-                )
+    dx        = self.rand.rand_ndarray([N,2])
+    dx        = dx * (scale/2.0)
 
     return ((N,  link_w, K_spring, gravity,  x),  (dx,))
     
@@ -127,6 +125,29 @@ class TestCatenary(unittest.TestCase, FunctionTestCase):
     w, h          = indata[0:2]
     d_out         = self.rand.uniform(-2,2)
     return (indata,din,d_out)
+
+  def rand_perf_inout(self):
+    # this test puts the points of the chain in a line
+    # from (0,0) to (1,0), but with jitter introduced
+    N         = int(1e6)
+
+    link_w    = 200/(N+2)
+    K_spring  = self.rand.uniform(0.8,1.2)
+    gravity   = self.rand.uniform(0.5,2.0)
+
+    x         = self.rand.rand_ndarray([N,2])
+    for i in range(0,N):
+      scale   = (link_w/4)
+      x[i,0]  = scale*x[i,0] + (i+1)/(N+2)
+      x[i,1]  = scale*x[i,1]
+
+    scale     = (link_w/2.0)
+    dx        = self.rand.rand_ndarray([N,2])
+    dx        = dx * (scale/2.0)
+
+    d_out         = self.rand.uniform(-2,2)
+
+    return ((N,  link_w, K_spring, gravity,  x), (dx,), d_out)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

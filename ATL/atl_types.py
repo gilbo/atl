@@ -121,7 +121,7 @@ def shape_or_scalar(t):
   if t is num:
     return tuple()
   assert type(t) is Tensor
-  return t.shape()
+  return tuple(t.shape())
 del shape_or_scalar
 
 @extclass(_Types.type)

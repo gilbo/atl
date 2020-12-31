@@ -52,9 +52,9 @@ module HIR {
     rdom   = RDom      ( string name, range* bounds )
     param  = Param     ( string name, type typ )
     img    = Img       ( string name, int ndim, type typ )
-    func   = Func      ( string name )
+    func   = Func      ( string name, int ndim, type typ )
            | ImgFunc   ( img img )
-    
+
     expr   = Const     ( object v, type typ )
            | Evar      ( var v )
            | Erdom     ( rdom r )
@@ -69,10 +69,10 @@ module HIR {
            | Select    ( expr pred, expr lhs, expr rhs )
            | FAccess   ( func f, expr* args )
            | BigSum    ( rdom r, expr body )
-    
+
     stmt   = PureDef   ( func f, var* args, expr rhs )
            | Update    ( func f, expr* args, expr rhs )
-    
+
     range  = Range ( expr lo, expr extent )
     type   = Type  ( typbase base, int lanes )
 }
@@ -181,7 +181,7 @@ def __str__(p):
     imgs  = '\n        '.join([ str(i) for i in p.imgs ])
     stmts = '\n        '.join([ str(s) for s in p.stmts ])
     outs  = '\n        '.join([ str(o) for o in p.outputs ])
-    
+
     s = (f"Var     {vs}\n"
          f"RDom    {rs}\n"
          f"Func    {fs}\n"
@@ -196,7 +196,7 @@ def signature_str(self):
     ps    = '\n        '.join([ str(p) for p in self.params ])
     imgs  = '\n        '.join([ str(i) for i in self.imgs ])
     outs  = '\n        '.join([ str(o) for o in self.outputs ])
-    
+
     s = (f"Param   {ps}\n"
          f"Img     {imgs}\n"
          f"Out     {outs}")
@@ -232,7 +232,7 @@ def _ndarray_to_halide_buf(a):
         elif t is np.float64: return halide_type_t(C.type_float,64,1)
         else:
             raise TypeError(f"unexpected type {t}")
-    
+
     buf  = halide_buffer_t()
     buf.device              = 0
     buf.device_interface    = None
@@ -247,7 +247,7 @@ def _ndarray_to_halide_buf(a):
         assert a.strides[k] % a.itemsize == 0
         buf.dim[k] = halide_dimension_t(0,a.shape[k],s,0)
     buf.padding             = None
-    
+
     return buf
 
 # --------------------------------------------------------------------------- #
@@ -304,7 +304,7 @@ class _HIR_Compilation:
         self._stmts  = {
             s : self.get_stmt(s)
             for s in pipe.stmts }
-    
+
     def get_func(self,f):
         if f in self._funcs: return self._funcs[f]
         else:
@@ -312,7 +312,7 @@ class _HIR_Compilation:
             f_img   = C.hwrap_img_to_func(self._imgs[f.img])
             self._funcs[f] = f_img
             return f_img
-    
+
     def get_rdom(self,r):
         if r in self._rdoms: return self._rdoms[r]
         n_bd    = len(r.bounds)
@@ -325,7 +325,7 @@ class _HIR_Compilation:
                               n_bd, c_bds)
         self._rdoms[r] = rd
         return rd
-    
+
     def get_expr(self,e):
         if e in self._exprs: return self._exprs[e]
         ee      = None
@@ -392,7 +392,7 @@ class _HIR_Compilation:
             ee  = C.hwrap_big_sum(r, self.get_expr(e.body))
         self._exprs[e]  = ee
         return ee
-    
+
     def get_stmt(self, s):
         f       = self.get_func(s.f)
         rhs     = self.get_expr(s.rhs)
@@ -409,7 +409,7 @@ class _HIR_Compilation:
 class _HIR_JIT_Execution(_HIR_Compilation):
     def __init__(self, pipe):
         super().__init__(pipe)
-    
+
     def _check_args(self, params, imgs, outputs):
         if type(params) != list: raise TypeError("expected list of 'params'")
         if type(imgs)   != list: raise TypeError("expected list of 'imgs'")
@@ -420,7 +420,7 @@ class _HIR_JIT_Execution(_HIR_Compilation):
         if len(params)  != n_p: raise TypeError(f"expected list of {n_p} 'params'")
         if len(imgs)    != n_i: raise TypeError(f"expected list of {n_i} 'imgs'")
         if len(outputs) != n_o: raise TypeError(f"expected list of {n_o} 'outputs'")
-    
+
     def _set_params(self, params):
         for k,val in enumerate(params):
             p_IR    = self._pipe.params[k]
@@ -430,20 +430,20 @@ class _HIR_JIT_Execution(_HIR_Compilation):
             assert p_IR.typ.lanes == 1
             val_expr = getattr(C,f"hwrap_{p_IR.typ.base}_to_expr")(val)
             C.hwrap_set_param_estimate(p_obj,val_expr)
-        
+
     def _jit_compile(self, params, imgs, outputs):
         if hasattr(self,'_pipeline_obj'): return
         i32 = C.hwrap_i32_to_expr
-        
+
         self._set_params(params)
-        
+
         # estimate input bounds
         for k,np_arr in enumerate(imgs):
             img_IR  = self._pipe.imgs[k]
             img_obj = self._imgs[img_IR]
             for d_i,d_N in enumerate(np_arr.shape):
                 C.hwrap_set_img_bound_estimate(img_obj,d_i,i32(0),i32(d_N))
-                
+
         # estimate output bounds
         out_fs  = []
         for k,np_arr in enumerate(outputs):
@@ -452,28 +452,28 @@ class _HIR_JIT_Execution(_HIR_Compilation):
             out_fs.append(out_obj)
             for d_i,d_N in enumerate(np_arr.shape):
                 C.hwrap_set_func_bound_estimate(out_obj,d_i,i32(0),i32(d_N))
-        
+
         n_out   = len(outputs)
         c_fs    = (n_out * hw_func_t)(*out_fs)
         self._pipeline_obj = C.hwrap_new_pipeline(n_out,c_fs)
         C.hwrap_autoschedule_pipeline(self._pipeline_obj)
         #C.hwrap_pipeline_print_loop_nest(self._pipeline_obj)
-        
+
     def _exec(self, params, imgs, outputs):
         #print('executing...')
         #print(self._pipe)
         self._check_args(params,imgs,outputs)
         self._jit_compile(params,imgs,outputs)
-        
+
         # bind the arguments
         self._set_params(params)
-        
+
         # bind input buffers
         for k,np_arr in enumerate(imgs):
             h_buf   = _ndarray_to_halide_buf(np_arr)
             img_obj = self._imgs[self._pipe.imgs[k]]
             C.hwrap_set_img(img_obj, ctypes.byref(h_buf))
-        
+
         # bind output buffers and Execute!
         outs    = [ _ndarray_to_halide_buf(arr) for arr in outputs ]
         c_outs  = (len(outs)*halide_buffer_t)(*outs)
@@ -488,6 +488,486 @@ del __call__
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+#
+#           Below dumps HIR to a C++ string and JIT compiles it
+#
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+#   Helpers and directory setup
+
+def _shell(cstr):
+  subprocess.run(cstr, check=True, shell=True)
+
+_HERE_DIR       = os.path.dirname(os.path.abspath(__file__))
+_C_CACHE        = os.path.join(_HERE_DIR,'.atl_halide_cache')
+if not os.path.isdir(_C_CACHE):
+  os.mkdir(_C_CACHE)
+
+def get_time(s):
+  if not os.path.exists(s):
+    return None
+  else:
+    return os.path.getmtime(s)
+
+# clean the cache when it exceeds 50MB;
+# keep all files created in the last day or so
+def clean_cache(size_trigger = int(50e6), clear_time_window = 86400.0):
+  curr_time   = time.time()
+  filenames   = [ os.path.join(_C_CACHE,f) for f in os.listdir(_C_CACHE) ]
+  used_size   = sum(os.path.getsize(f) for f in filenames)
+
+  if used_size > size_trigger:
+    for file in filenames:
+      mtime   = get_time(file)
+      if curr_time - mtime > clear_time_window:
+        os.remove(file)
+
+# try out a single clean every time we load this module
+clean_cache()
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+#   Lowering HIR to a string
+
+class HIR_CPP_String:
+    def __init__(self, name, pipe, param_vals, img_ranges, out_ranges):
+        assert type(pipe) is HIR.Pipeline
+
+        self._ctxt      = ChainMap({})
+        self._names     = ChainMap({})
+        self._tab       = ""
+        self._lines     = []
+
+        # start of file...
+        self.line('#include "Halide.h"')
+        self.line('using namespace Halide;')
+        self.line('')
+        self.line(f"class Generator_for_{name} : "+
+                  f"public Halide::Generator<Generator_for_{name}>"+"{")
+        self.line("public:")
+        # entering class body
+        self.push_scope(name=False)
+
+        # inputs
+        # param inputs
+        for p in pipe.params:
+            ctyp = self.hir_to_ctype(p.typ)
+            name = self.new_name(p.name)
+            self.line(f'Input<{ctyp}> {name}{{"{name}"}}')
+        # img inputs
+        for img in pipe.imgs:
+            ctyp = self.hir_to_ctype(img.typ)
+            name = self.new_name(img.name)
+            order = img.ndim
+            self.line(f'Input<Buffer<{ctyp}>> {name}{{"{name}", {order}}};')
+        self.line("")
+
+        # outputs
+        # output funcs
+        for f in pipe.outputs:
+            assert type(f) is HIR.Func
+            ctyp = self.hir_to_ctype(f.typ)
+            name = self.new_name(f.name)
+            order = f.ndim
+            self.line(f'Output<Buffer<{ctyp}>> {name}{{"{name}", {f.ndim}}};')
+        self.line("")
+
+        # void generate
+        self.line("void generate() {")
+        self.push_scope()
+        for s in pipe.stmts:
+            self.compile_stmt(s)
+        self.pop_scope()
+        self.line("}")
+        self.line("")
+
+        # void schedule
+        self.line("void schedule() {")
+        self.push_scope(name=False)
+        self.line("if(auto_schedule) {")
+        self.push_scope()
+        # estimate input params
+        for p,val in zip(pipe.params,param_vals):
+            self.line(f'{self._ctxt[p.name]}.set_estimate({val});')
+        self.line("")
+
+        # estimate input imgs
+        for img, shape in zip(pipe.imgs, img_ranges):
+            name    = self._ctxt[img.name]
+            rngs    = [ f"{{0,{s}}}" for s in shape ]
+            rngs    = "{"+(",".join(rngs))+"}"
+            self.line(f'{name}.set_estimates({rngs});')
+        self.line("")
+
+        # estimate outputs
+        for f, shape in zip(pipe.outputs, out_ranges):
+            name    = self._ctxt[f.name]
+            rngs    = [ f"{{0,{s}}}" for s in shape ]
+            rngs    = "{"+(",".join(rngs))+"}"
+            self.line(f'{name}.set_estimates({rngs});')
+
+        self.pop_scope()
+        self.line("}")
+        self.pop_scope(name=False)
+        self.line("}")
+
+        # exiting class body
+        self.pop_scope(name=False)
+        self.line("};")
+        # bottom of file...
+        self.line(f"HALIDE_REGISTER_GENERATOR(Generator_for_{name}, {name});")
+
+    def result(self):
+        return '\n'.join(self._lines)
+
+    def compile_stmt(self, stmt):
+        # determine whether func needs to be declared
+        if type(stmt) is HIR.PureDef:
+            if stmt.f.name in self._ctxt:
+                assert any( stmt.f.name == o.name for o in self._pipe.outputs )
+            else:
+                self.line(f"Func {self.new_name(stmt.f.name)};")
+
+        self.push_scope(tab=False)
+        # determine variables that need to be declared
+        if type(stmt) is HIR.PureDef:
+            vars = stmt.args
+        elif type(stmt) is HIR.Update:
+            vars = set()
+            for a in e.args:
+                if type(a) is HIR.Evar:
+                    vars.add(a.v.name)
+            vars = list(vars)
+        for v in vars:
+            self.line(f"Var {self.new_name(v)};")
+
+        # determine rdoms that need to be declared
+        rdoms   = {}
+        if type(stmt) is HIR.Update:
+            for a in stmt.args:
+                self.rdoms_used(a, rdoms)
+        self.rdoms_used(stmt.rhs, rdoms)
+        for r in rdoms:
+            bds     = rdoms[r]
+            bdargs  = []
+            for rng in bds:
+                bdargs.append( self.compile_expr(rng.lo) )
+                bdargs.append( self.compile_expr(rng.extent) )
+            self.line(f"RDom {self.new_name(r)}({','.join(bdargs)});")
+
+        # next, build the left-hand-side of the stmt
+        fname       = self._ctxt[stmt.f.name]
+        assert len(stmt.args) > 0
+        if type(stmt) is HIR.PureDef:
+            args    = [ self._ctxt[a.name] for a in stmt.args ]
+        else:
+            assert type(stmt) is HIR.Update
+            args    = [ self.compile_expr(a) for a in stmt.args ]
+        rhs         = self.compile_expr(stmt.rhs)
+        self.line(f"{fname}[{','.join(args)}] = {rhs};")
+
+        self.pop_scope(tab=False)
+
+    _prec = {
+      #
+      "or":   10,
+      "and":  20,
+      #
+      "!=":   30,
+      "==":   30,
+      #
+      "<":    40,
+      ">":    40,
+      "<=":   40,
+      ">=":   40,
+      #
+      "+":    50,
+      "-":    50,
+      "*":    60,
+      "/":    60,
+    }
+    def compile_expr(self, e, prec=0):
+        etyp = type(e)
+
+        if etyp is HIR.Const:
+            return str(e.v)
+        elif etyp is HIR.Evar:
+            return self._ctxt[e.v.name]
+        elif etyp is HIR.Erdom:
+            return self._ctxt[e.r.name]
+        elif etyp is HIR.Eparam:
+            return self._ctxt[e.p.name]
+        elif etyp is HIR.BinOp:
+            op_prec = HIR_CPP_String._prec[e.op]
+            lhs = self.compile_expr(e.lhs, prec=op_prec)
+            rhs = self.compile_expr(e.rhs, prec=op_prec+1)
+            exp = f'{lhs} {e.op} {rhs}'
+            if prec > op_prec:
+                exp = f'({exp})'
+            return exp
+        elif etyp is HIR.Min or etyp is HIR.Max:
+            op  = "min" if etyp is HIR.Min else "max"
+            lhs = self.compile_expr(e.lhs)
+            rhs = self.compile_expr(e.rhs)
+            return f"{op}({lhs}, {rhs})"
+        elif etyp is HIR.MathFn1:
+            return f'{e.name}({self.compile_expr(e.arg)})'
+        elif etyp is HIR.Clamp:
+            val = self.compile_expr(e.val)
+            lo = self.compile_expr(e.lo)
+            hi = self.compile_expr(e.hi)
+            return f'clamp({val}, {lo}, {hi})'
+        elif etyp is HIR.Pow:
+            base = self.compile_expr(e.base)
+            exp = self.compile_expr(e.exp)
+            return f'pow({base}, {exp})'
+        elif etyp is HIR.ATan2:
+            y = self.compile_expr(e.y)
+            x = self.compile_expr(e.x)
+            return f'atan2({y}, {x})'
+        elif etyp is HIR.Select:
+            pred = self.compile_expr(e.pred)
+            lhs = self.compile_expr(e.lhs)
+            rhs = self.compile_expr(e.rhs)
+            return f'select({pred}, {lhs}, {rhs})'
+        elif etyp is HIR.FAccess:
+            nm = e.f.name if type(e.f) is HIR.Func else e.f.img.name
+            name = self._ctxt[nm]
+            args = [ self.compile_expr(a) for a in e.args ]
+            return f'{name}({",".join(args)})'
+        elif etyp is HIR.BigSum:
+            r    = self._ctxt[e.r.name]
+            body = self.compile_expr(e.body)
+            return f'sum({r}, {body})'
+        else: assert False, "bad case"
+
+    def line(self, s):
+        self._lines.append(f"{self._tab}{s}")
+
+    def push_scope(self, name=True, tab=True):
+        if tab:
+          self._tab  += "  "
+        if name:
+          self._ctxt  = self._ctxt.new_child()
+          self._names = self._names.new_child()
+
+    def pop_scope(self, name=True, tab=True):
+        if tab:
+            self._tab   = self._tab[0:-2] # trim two chars off the end
+        if name:
+            self._ctxt  = self._ctxt.parents
+            self._names = self._names.parents
+
+    _typ_convert_tbl = {
+        "f32":  "float",
+        "f64":  "double",
+        "u8":   "uint8_t",
+        "u16":  "uint16_t",
+        "u32":  "uint32_t",
+        "u64":  "uint64_t",
+        "i8":   "int8_t",
+        "i16":  "int16_t",
+        "i32":  "int32_t",
+        "i64":  "int64_t",
+    }
+    def hir_to_ctype(typ):
+        assert type(typ) is HIR.Type
+        assert typ.lanes == 1
+        return HIR_CPP_String._typ_convert_tbl[typ.base]
+
+    def rdoms_used(self, e, rdom_bds):
+        etyp = type(e)
+
+        if etyp is HIR.Erdom:
+            if e.r.name not in rdom_bds:
+                rdom_bds[e.r.name] = e.r.bounds
+        elif (etyp is HIR.BinOp or
+              etyp is HIR.Min or etyp is HIR.Max):
+            self.rdoms_used(e.lhs, rdom_bds)
+            self.rdoms_used(e.rhs, rdom_bds)
+        elif etyp is HIR.MathFn1:
+            self.rdoms_used(e.arg, rdom_bds)
+        elif etyp is HIR.Clamp:
+            self.rdoms_used(e.val, rdom_bds)
+            self.rdoms_used(e.lo, rdom_bds)
+            self.rdoms_used(e.hi, rdom_bds)
+        elif etyp is HIR.Pow:
+            self.rdoms_used(e.base, rdom_bds)
+            self.rdoms_used(e.exp, rdom_bds)
+        elif etyp is HIR.ATan2:
+            self.rdoms_used(e.x, rdom_bds)
+            self.rdoms_used(e.y, rdom_bds)
+        elif etyp is HIR.Select:
+            self.rdoms_used(e.pred, rdom_bds)
+            self.rdoms_used(e.lhs, rdom_bds)
+            self.rdoms_used(e.rhs, rdom_bds)
+        elif etyp is HIR.FAccess:
+            for a in e.args:
+                self.rdoms_used(a, rdom_bds)
+        elif etyp is HIR.BigSum:
+            if e.r.name not in rdom_bds:
+                rdom_bds[e.r.name] = e.r.bounds
+            self.rdoms_used(e.body, rdom_bds)
+
+    def new_name(self, nm):
+        assert nm not in self._ctxt
+        nmstr = str(nm)
+        if nmstr not in self._names:
+            # the first occurrence of nmstr is undecorated
+            retstr = nmstr
+        else:
+            # if we've already allocated nmstr, then
+            # we must allocate a fresh name via a count decoration
+            retstr  = self._names[nmstr]
+            # iterate the following process till we are sure
+            # we have a fresh name
+            while retstr in self._names:
+                m     = re.match('^(.*)_([0-9]*)$', retstr)
+                if not m:
+                    # retstr was undecorated
+                    retstr = retstr + "_1"
+                else:
+                    # if retstr was already decorated, increment the counter
+                    retstr = f"{m[1]}_{int(m[2]) + 1}"
+
+        # update to the latest renaming of this name string
+        # and also mark that the renamed string is being used
+        assert retstr not in self._names
+        self._names[nmstr]  = retstr
+        self._names[retstr] = retstr
+        self._ctxt[nm]      = retstr
+        return retstr
 
 
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+#   JIT compilation of generated CPP files
 
+
+class Halide_CJit:
+  """ Manage JIT compilation of ATL -> CPP/Halide code
+  """
+
+  def __init__(self, name, pipe):
+    assert type(pipe) is HIR.Pipeline
+
+    self._pipe    = pipe
+
+    # run once just to compute hash values...
+    hstr, cstr    = HIR_CPP_String(_C_CACHE,
+                                   f"{name}.h", f"{name}.cpp",
+                                   pipe).result()
+    hashstr       = hashlib.md5(cstr.encode('utf-8')).hexdigest()
+
+    fname         = name + hashstr
+    h_filename    = os.path.join(_C_CACHE,f"{fname}.h")
+    c_filename    = os.path.join(_C_CACHE,f"{fname}.cpp")
+    so_filename   = os.path.join(_C_CACHE,f"{fname}.so")
+    comp_cmd      = (f"clang++ -Wall -Werror -fPIC -O3 -shared -std=c++11 "
+                     f"-I {_C_CACHE} "
+                     f"-o {so_filename} {c_filename}")
+    hstr, cstr    = HIR_CPP_String(_C_CACHE,
+                                   f"{fname}.h", f"{fname}.cpp",
+                                   pipe).result()
+
+    #print(hstr)
+    #print(cstr)
+
+    def matches_file(src, fname):
+      if not os.path.isfile(fname):
+        return False
+      else:
+        with open(fname, 'r', encoding = 'utf-8') as F:
+          return F.read() == src
+    def write_file(src, fname):
+      with open(fname, 'w', encoding = 'utf-8') as F:
+        F.write(src)
+
+    # do we need to rebuild the corresponding SO?
+    if (not matches_file(hstr, h_filename) or
+        not matches_file(cstr, c_filename)):
+      write_file(hstr, h_filename)
+      write_file(cstr, c_filename)
+      #print(comp_cmd)
+      _shell(comp_cmd)
+
+    # load the module regardless
+    module        = ctypes.CDLL(so_filename)
+    self._module  = module
+    self._cfun    = getattr(module, name)
+
+    #wrap the module function with types
+    raise NotImplementedError("TODO: DECIDE TYPING")
+    atyps = []
+    for sz in self._proc.sizes:
+      atyps.append(get_ctype(int))
+    for a in self._proc.args:
+      if str(a.name) == "output":
+        atyps.append(ctypes.POINTER(get_ctype(a.type)))
+      else:
+        atyps.append(get_ctype(a.type))
+    for sz in self._proc.relargs:
+      atyps.append(ctypes.POINTER(ctypes.c_bool))
+    self._cfun.argtypes   = atyps
+    self._cfun.restype    = None
+
+  def __call__(self, vs, sizes, relations, out):
+
+    def pack_input(val,typ,is_output=False):
+      if typ == T.num:
+        if is_output:
+          assert type(val) is np.ndarray and val.shape == (1,)
+          return ctypes.c_double(val[0])
+        else:
+          assert type(val) is float
+          return ctypes.c_double(val)
+      elif type(typ) is T.Tensor:
+        assert type(val) is np.ndarray
+        ptr       = val.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        return ptr
+      elif type(typ) is T.Tuple:
+        assert isinstance(val, tuple) and len(val) == len(typ.types)
+        struct    = get_ctype(typ)
+        return struct(*[ pack_input(v,t,is_output)
+                         for v,t in zip(val,typ.types) ])
+      else: assert False, "bad case"
+
+    # collect all the arguments to the function call
+    fargs         = []
+    for sz in sizes:
+      fargs.append(ctypes.c_int(sz))
+    for v,vd in zip(vs, self._func.vars):
+      fargs.append(pack_input(v,vd.type))
+    # special case the packing of the output argument...
+    out_obj = pack_input(out, self._func.rettype, is_output=True)
+    fargs.append(ctypes.byref(out_obj))
+    # back to the relation data now...
+    for r in relations:
+      assert type(r) is np.ndarray
+      fargs.append( r.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)) )
+
+    # do the C-function invocation through the FFI
+    self._cfun(*fargs)
+
+    def pack_output(obj,argval,typ):
+      if typ == T.num:
+        assert type(argval) is np.ndarray and argval.shape == (1,)
+        #print(obj)
+        #print(type(obj))
+        if type(obj) is float:
+          argval[0] = obj
+        else:
+          argval[0] = obj.value
+      elif type(typ) is T.Tensor:
+        assert type(argval) is np.ndarray
+        pass # no action necessary, data written via pointer already
+      elif type(typ) is T.Tuple:
+        for i,(a,t) in enumerate(zip(argval,typ.types)):
+          pack_output( getattr(obj,f"_{i}"), a, t )
+      else: assert False, "bad case"
+
+    pack_output(out_obj, out, self._func.rettype)
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #

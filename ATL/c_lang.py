@@ -111,7 +111,7 @@ def get_type(typ):
       return _typcache[typ]
     # otherwise build the struct type
     typname     = re.sub('[^0-9a-zA-Z]+', '_', str(typ))
-    
+
     subtyps     = [ get_type(t)[0] for t in typ.types ]
     fields      = [ f"_{i}" for i in range(0,len(subtyps)) ]
     entries     = [ f"  {t} {f};" for t,f in zip(subtyps, fields) ]
@@ -460,7 +460,7 @@ class CodeString:
     return typname
 
   def is_namedef(self, nm):
-    return nm in self._ctxt
+    return (nm in self._ctxt)
 
   def new_name(self, nm):
     assert nm not in self._ctxt
@@ -489,11 +489,3 @@ class CodeString:
     self._names[retstr] = retstr
     self._ctxt[nm]      = retstr
     return retstr
-
-
-
-
-
-
-
-

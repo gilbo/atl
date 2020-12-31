@@ -152,7 +152,7 @@ class Compile:
 
     # invoke the pipeline
     self._pipeline(params, imgs, outputs)
-    
+
   def _get_range(self,atl_rng):
     if type(atl_rng) is int:
       return HIR.Range( HIR.Const(0,HIR.i32), HIR.Const(atl_rng,HIR.i32) )
@@ -170,7 +170,8 @@ class Compile:
 
   def _compile_stmt(self, stmt):
     # create Func symbol and bind it
-    func        = HIR.Func(str(stmt.name))
+    n_dim       = 1 if stmt.type == T.num else len(stmt.type.shape())
+    func        = HIR.Func(str(stmt.name), n_dim, HIR.f64)
     self._ctxt.set(stmt.name, func)
     self._funcs.append(func)
 
@@ -209,7 +210,7 @@ class Compile:
 
     # return the HIR stmt
     return HIR.PureDef( func, arg_vars, hir_rhs )
-    
+
   def _compile_leaf(self,e):
     #print('comp leaf ', e)
     # extract accesses
@@ -358,6 +359,3 @@ class Compile:
       lhs     = self._compile_expr(e.lhs)
       rhs     = self._compile_expr(e.rhs)
       return HIR.BinOp(op, lhs, rhs)
-
-
-

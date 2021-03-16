@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import subprocess
+import re
 
 import hashlib
 
@@ -149,7 +150,7 @@ class CJit:
     cpp_filename  = os.path.join(_C_CACHE,f"{fname}.cpp")
     so_filename   = os.path.join(_C_CACHE,f"{fname}.so")
     comp_cmd      = (f"clang++ -Wall -Werror -fPIC -O3 -shared -std=c++11 "
-                     f"{cpp_flags}"
+                     f"{cpp_flags} "
                      f"-o {so_filename} {cpp_filename}")
 
     def matches_file(src, fname):
@@ -187,8 +188,8 @@ class CJit:
     atyps = []
     for _ in type_sig.size_names:
       atyps.append(get_ctype(int))
-    for a in type_sig.var_decls:
-      atyps.append(get_ctype(a.type))
+    for typ in type_sig.var_typs:
+      atyps.append(get_ctype(typ))
     atyps.append(ctypes.POINTER(get_ctype(type_sig.ret_typ)))
     for _ in range(0,type_sig.n_rels):
       atyps.append(ctypes.POINTER(ctypes.c_bool))
@@ -220,10 +221,10 @@ class CJit:
     fargs         = []
     for sz in sizes:
       fargs.append(ctypes.c_int(sz))
-    for v,vd in zip(vs, self._func.vars):
-      fargs.append(pack_input(v,vd.type))
+    for v,typ in zip(vs, self._type_sig.var_typs):
+      fargs.append(pack_input(v,typ))
     # special case the packing of the output argument...
-    out_obj = pack_input(out, self._func.rettype, is_output=True)
+    out_obj = pack_input(out, self._type_sig.ret_typ, is_output=True)
     fargs.append(ctypes.byref(out_obj))
     # back to the relation data now...
     for r in relations:

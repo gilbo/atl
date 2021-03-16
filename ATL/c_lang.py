@@ -167,27 +167,40 @@ def compile_procs(h_file, c_file, procs):
     fdecls.append(CS.getdecl())
   structs = [ x for x in structs ]
 
-  H_str = [f'{h_include()}',
-           '\n',
-           '\n'.join(structs),
-           '\n',
-           '\n'.join(fdecls),
-           '\n']
-  C_str = [f'extern "C" {{\n',
-           f'  #include "{h_file}"\n',
-           f'}};\n',
-           f'{c_include()}',
-           '\n',
-           '\n'.join(fdefs),
-           '\n']
+  # compile both header and C file
+  if h_file:
+    H_str = [f'{h_include()}',
+             '\n',
+             '\n'.join(structs),
+             '\n',
+             '\n'.join(fdecls),
+             '\n']
+    C_str = [f'extern "C" {{\n',
+             f'  #include "{h_file}"\n',
+             f'}};\n',
+             f'{c_include()}',
+             '\n',
+             '\n'.join(fdefs),
+             '\n']
 
-  return ('\n'.join(H_str), '\n'.join(C_str))
-  #with open(h_file, 'w') as Hfile:
-  #  for s in H_str:
-  #    Hfile.write(s)
-  #with open(c_file, 'w') as Cfile:
-  #  for s in C_str:
-  #    Cfile.write(s)
+    return ('\n'.join(H_str), '\n'.join(C_str))
+
+  # compile only single C file
+  else:
+    C_str = [f'extern "C" {{\n',
+             f'{h_include()}',
+             '\n',
+             '\n'.join(structs),
+             '\n',
+             '\n'.join(fdecls),
+             '\n'
+             f'}};\n',
+             f'{c_include()}',
+             '\n',
+             '\n'.join(fdefs),
+             '\n']
+
+    return '\n'.join(C_str)
 
 class CodeString:
   def __init__(self, proc):

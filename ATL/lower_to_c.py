@@ -344,35 +344,6 @@ class Lower:
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
-_ctype_struct_cache = {}
-def get_ctype(typ):
-  """ translate double,bool,int or an ATL type into a C-type """
-  if typ == float or typ == T.num:
-    return ctypes.c_double
-  elif typ == int:
-    return ctypes.c_int
-  elif typ == bool:
-    return ctypes.c_bool
-  elif type(typ) is T.Tensor:
-    assert typ.is_SoA()
-    return ctypes.POINTER(ctypes.c_double)
-  elif type(typ) is T.Tuple:
-    if typ in _ctype_struct_cache:
-      return _ctype_struct_cache[typ]
-
-    name, defstr  = C_get_type(typ)
-    fields        = [ (f"_{i}", get_ctype(t))
-                      for i,t in enumerate(typ.types) ]
-    # create a new type
-    struct        = type(name, (ctypes.Structure,), { '_fields_': fields })
-
-    _ctype_struct_cache[typ] = struct
-    return struct
-  else: assert False, "bad case"
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-
 from .cjit import CJitSig
 from .cjit import CJit as GenericCJit
 
@@ -386,136 +357,25 @@ class CJit:
     self._func    = func
     self._proc    = Lower(func).result()
 
-    # run once just to compute hash values...
-    hstr, cstr    = compile_procs("dummy.h", "dummy.c", [self._proc])
-    hashstr       = hashlib.md5(cstr.encode('utf-8')).hexdigest()
 
     name          = self._proc.name
-    fname         = name + hashstr
-    h_filename    = os.path.join(_C_CACHE,f"{fname}.h")
-    c_filename    = os.path.join(_C_CACHE,f"{fname}.cpp")
-    so_filename   = os.path.join(_C_CACHE,f"{fname}.so")
-    comp_cmd      = (f"clang++ -Wall -Werror -fPIC -O3 -shared -std=c++11 "+
-                     f"-I {_C_CACHE} "+
-                     f"-o {so_filename} {c_filename}")
-    hstr, cstr    = compile_procs(h_filename, c_filename, [self._proc])
-
+    cstr          = compile_procs(None, None, [self._proc])
     self._c_code_str = cstr
-    #print(hstr)
-    #print(cstr)
-
-    def matches_file(src, fname):
-      if not os.path.isfile(fname):
-        return False
-      else:
-        with open(fname, 'r', encoding = 'utf-8') as F:
-          return F.read() == src
-    def write_file(src, fname):
-      with open(fname, 'w', encoding = 'utf-8') as F:
-        F.write(src)
-    def is_so_fresh():
-      so_time = get_time(so_filename)
-      c_time  = get_time(c_filename)
-      h_time  = get_time(h_filename)
-      if so_time is None or c_time is None or h_time is None:
-        return False
-      else:
-        return so_time >= max(c_time, h_time)
-
-    # do we need to rebuild the corresponding SO?
-    recompile = not is_so_fresh()
-    if (not matches_file(hstr, h_filename) or 
-        not matches_file(cstr, c_filename)):
-      write_file(hstr, h_filename)
-      write_file(cstr, c_filename)
-      recompile = True
-    if recompile:
-      #print(comp_cmd)
-      _shell(comp_cmd)
-
-    # load the module regardless
-    module        = ctypes.CDLL(so_filename)
-    self._module  = module
-    self._cfun    = getattr(module, name)
-
-    #wrap the module function with types
-    atyps = []
-    for sz in self._proc.sizes:
-      atyps.append(get_ctype(int))
-    for a in self._proc.args:
-      if str(a.name) == "output":
-        atyps.append(ctypes.POINTER(get_ctype(a.type)))
-      else:
-        atyps.append(get_ctype(a.type))
-    for sz in self._proc.relargs:
-      atyps.append(ctypes.POINTER(ctypes.c_bool))
-    self._cfun.argtypes   = atyps
-    self._cfun.restype    = None
+    signature = CJitSig(
+      size_names  = [x.name for x in self._func.sizes],
+      var_typs    = [x.type for x in self._func.vars],
+      n_rels      = len(self._func.relations),
+      ret_typ     = self._func.rettype)
+    self._generic_cjit  = GenericCJit(name, signature,
+                                      cstr,
+                                      f"-I {_C_CACHE}")
 
   def codestr(self):
     return self._c_code_str
 
   def __call__(self, vs, sizes, relations, out):
 
-    def pack_input(val,typ,is_output=False):
-      if typ == T.num:
-        if is_output:
-          assert type(val) is np.ndarray and val.shape == (1,)
-          return ctypes.c_double(val[0])
-        else:
-          assert type(val) is float
-          return ctypes.c_double(val)
-      elif type(typ) is T.Tensor:
-        assert type(val) is np.ndarray
-        ptr       = val.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-        return ptr
-      elif type(typ) is T.Tuple:
-        assert isinstance(val, tuple) and len(val) == len(typ.types)
-        struct    = get_ctype(typ)
-        return struct(*[ pack_input(v,t,is_output)
-                         for v,t in zip(val,typ.types) ])
-      else: assert False, "bad case"
-
-    # collect all the arguments to the function call
-    fargs         = []
-    for sz in sizes:
-      fargs.append(ctypes.c_int(sz))
-    for v,vd in zip(vs, self._func.vars):
-      fargs.append(pack_input(v,vd.type))
-    # special case the packing of the output argument...
-    out_obj = pack_input(out, self._func.rettype, is_output=True)
-    fargs.append(ctypes.byref(out_obj))
-    # back to the relation data now...
-    for r in relations:
-      assert type(r) is np.ndarray
-      fargs.append( r.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)) )
-
-    # do the C-function invocation through the FFI
-    self._cfun(*fargs)
-
-    def pack_output(obj,argval,typ):
-      if typ == T.num:
-        assert type(argval) is np.ndarray and argval.shape == (1,)
-        #print(obj)
-        #print(type(obj))
-        if type(obj) is float:
-          argval[0] = obj
-        else:
-          argval[0] = obj.value
-      elif type(typ) is T.Tensor:
-        assert type(argval) is np.ndarray
-        pass # no action necessary, data written via pointer already
-      elif type(typ) is T.Tuple:
-        for i,(a,t) in enumerate(zip(argval,typ.types)):
-          pack_output( getattr(obj,f"_{i}"), a, t )
-      else: assert False, "bad case"
-
-    pack_output(out_obj, out, self._func.rettype)
-
-
-
-
-
+    self._generic_cjit(vs, sizes, relations, out)
 
 
 

@@ -189,7 +189,11 @@ class FunctionTestCase:
     func                  = func._TEST_PreNormalization()
     for fname,in_data,out_data in self.discover_rand_data():
       with self.subTest(data=fname):
-        interp_out        = func.jit_exec(*in_data)
+        #interp_out        = func.jit_exec(*in_data)
+        interp_out        = func.cjit(*in_data)
+        print(in_data)
+        print(func._cjit_compiled.codestr())
+        print(out_data, interp_out)
         np.testing.assert_allclose(out_data, interp_out)
 
   def test_let_lift(self):

@@ -441,11 +441,11 @@ class CodeString:
       return base
     else:
       idx     = [ self.gen_expr(i,prec=_prec['*']) for i in acc.idx ]
-      res     = idx[0]
-      for k,i,r in zip(range(1,len(idx)),idx[1:],shp[1:]):
-        if k > 1:
-          res = f"({res})"
-        res   = f"{res}*{r} + {i}"
+      iters   = list(zip(reversed(idx),reversed(shp)))
+      res     = iters[0][0]
+      for i,r in iters[1:]:
+        res = f"({res})"
+        res   = f"{i} + {r}*{res}"
       return f"{base}[{res}]"
 
   def get_type(self, typ):

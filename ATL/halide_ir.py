@@ -494,7 +494,7 @@ del __call__
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Helpers and directory setup
-
+"""
 def _shell(cstr):
   subprocess.run(cstr, check=True, shell=True)
 
@@ -524,6 +524,7 @@ def clean_cache(size_trigger = int(50e6), clear_time_window = 86400.0):
 
 # try out a single clean every time we load this module
 clean_cache()
+"""
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -843,10 +844,8 @@ class HIR_CPP_String:
 # --------------------------------------------------------------------------- #
 #   JIT compilation of generated CPP files
 
-
+"""
 class Halide_CJit:
-  """ Manage JIT compilation of ATL -> CPP/Halide code
-  """
 
   def __init__(self, name, pipe):
     assert type(pipe) is HIR.Pipeline
@@ -967,7 +966,7 @@ class Halide_CJit:
       else: assert False, "bad case"
 
     pack_output(out_obj, out, self._func.rettype)
-
+"""
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

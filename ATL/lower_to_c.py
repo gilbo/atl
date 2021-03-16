@@ -89,26 +89,34 @@ def subst_rhs(e, env):
 # --------------------------------------------------------------------------- #
 
 class LVal:
-  def __init__(self, base_var, idx=[], proj=[], op="="):
+  def __init__(self, base_var, idx=[], proj=[], op="=", is_out=False):
     self._name  = base_var
     self._idx   = idx
     self._proj  = proj
     self._op    = op
+    self._is_out= is_out
 
   def idx(self, e):
-    return LVal(self._name, self._idx + [e], self._proj, self._op)
+    return LVal(self._name, self._idx + [e], self._proj, self._op,
+                self._is_out)
 
   def proj(self, i):
-    return LVal(self._name, self._idx, self._proj + [i], self._op)
+    return LVal(self._name, self._idx, self._proj + [i], self._op,
+                self._is_out)
 
-  def reduce(self):
-    return LVal(self._name, self._idx, self._proj, "+=")
+  def reduce(self, is_out=None):
+    is_out = self._is_out if is_out is None else is_out
+    return LVal(self._name, self._idx, self._proj, "+=", is_out)
 
   def acc(self):
     return C.access( self._name, self._idx, self._proj )
 
   def op(self):
     return self._op
+
+  def is_out(self):
+    return self._is_out
+
 
 
 class Lower:
@@ -131,7 +139,7 @@ class Lower:
     assert all( str(a.name) != 'output' for a in args )
     output  = Sym('output')
     args   += [ C.fnarg(output, func.body.type, func.srcinfo) ]
-    body    = self.special_case_output(LVal(output), func.body)
+    body    = self.special_case_output(LVal(output, is_out=True), func.body)
 
     self._proc = C.proc( func.name or "anon",
                          sizes,
@@ -189,8 +197,7 @@ class Lower:
     else:
       return self.lower(lval, body)
 
-
-  def lower(self, lval, e):
+  def lower(self, lval, e, is_out=False):
     """ returns a list of statements """
     etyp  = type(e)
 
@@ -244,9 +251,15 @@ class Lower:
     # Other
     elif etyp is AST.Sum:
       assert e.type == T.num
+      if lval.is_out():
+        zero_out = [ C.Assign( lval.acc(),
+                               C.Const(0.0, float, e.srcinfo),
+                               e.srcinfo) ]
+      else:
+        zero_out = []
       lo, hi  = self.build_loop_limits(e.range, e)
-      body    = self.lower(lval.reduce(), e.body)
-      return [ C.For(e.name, lo, hi, body, e.srcinfo) ]
+      body    = self.lower(lval.reduce(is_out=False), e.body)
+      return zero_out + [ C.For(e.name, lo, hi, body, e.srcinfo) ]
     elif etyp is AST.Indicate:
       cond    = self.lower_pred(e.pred)
       body    = self.lower(lval, e.body)
@@ -360,6 +373,9 @@ def get_ctype(typ):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
+from .cjit import CJitSig
+from .cjit import CJit as GenericCJit
+
 class CJit:
   """ Manage JIT compilation of ATL -> C code
   """
@@ -379,11 +395,12 @@ class CJit:
     h_filename    = os.path.join(_C_CACHE,f"{fname}.h")
     c_filename    = os.path.join(_C_CACHE,f"{fname}.cpp")
     so_filename   = os.path.join(_C_CACHE,f"{fname}.so")
-    comp_cmd      = (f"clang++ -Wall -Werror -fPIC -O3 -shared -std=c++11 "
-                     f"-I {_C_CACHE} "
+    comp_cmd      = (f"clang++ -Wall -Werror -fPIC -O3 -shared -std=c++11 "+
+                     f"-I {_C_CACHE} "+
                      f"-o {so_filename} {c_filename}")
     hstr, cstr    = compile_procs(h_filename, c_filename, [self._proc])
 
+    self._c_code_str = cstr
     #print(hstr)
     #print(cstr)
 
@@ -396,12 +413,23 @@ class CJit:
     def write_file(src, fname):
       with open(fname, 'w', encoding = 'utf-8') as F:
         F.write(src)
+    def is_so_fresh():
+      so_time = get_time(so_filename)
+      c_time  = get_time(c_filename)
+      h_time  = get_time(h_filename)
+      if so_time is None or c_time is None or h_time is None:
+        return False
+      else:
+        return so_time >= max(c_time, h_time)
 
     # do we need to rebuild the corresponding SO?
+    recompile = not is_so_fresh()
     if (not matches_file(hstr, h_filename) or 
         not matches_file(cstr, c_filename)):
       write_file(hstr, h_filename)
       write_file(cstr, c_filename)
+      recompile = True
+    if recompile:
       #print(comp_cmd)
       _shell(comp_cmd)
 
@@ -423,6 +451,9 @@ class CJit:
       atyps.append(ctypes.POINTER(ctypes.c_bool))
     self._cfun.argtypes   = atyps
     self._cfun.restype    = None
+
+  def codestr(self):
+    return self._c_code_str
 
   def __call__(self, vs, sizes, relations, out):
 

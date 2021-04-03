@@ -119,6 +119,26 @@ def get_ctype(typ):
   else: assert False, "bad case"
 
 
+def matches_file(src, fname):
+  if not os.path.isfile(fname):
+    return False
+  else:
+    with open(fname, 'r', encoding = 'utf-8') as F:
+      return F.read() == src
+
+def write_file(src, fname):
+  with open(fname, 'w', encoding = 'utf-8') as F:
+    F.write(src)
+
+def check_makedep(dsts, srcs):
+  dst_times = [ get_time(d) for d in dsts ]
+  src_times = [ get_time(s) for s in srcs ]
+  if (any( t is None for t in dst_times ) or
+      any( t is None for t in src_times )):
+    return True
+  # if all times are defined, see if this dst file is stale...
+  return min(dst_times) < max(src_times)
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -153,29 +173,10 @@ class CJit:
                      f"{cpp_flags} "
                      f"-o {so_filename} {cpp_filename}")
 
-    def matches_file(src, fname):
-      if not os.path.isfile(fname):
-        return False
-      else:
-        with open(fname, 'r', encoding = 'utf-8') as F:
-          return F.read() == src
-    def write_file(src, fname):
-      with open(fname, 'w', encoding = 'utf-8') as F:
-        F.write(src)
-    def is_so_fresh():
-      so_time   = get_time(so_filename)
-      cpp_time  = get_time(cpp_filename)
-      if so_time is None or cpp_time is None:
-        return False
-      else:
-        return so_time >= cpp_time
-
     # do we need to rebuild the corresponding SO?
-    rebuild = not is_so_fresh()
     if not matches_file(cpp_str, cpp_filename):
       write_file(cpp_str, cpp_filename)
-      rebuild = True
-    if rebuild:
+    if check_makedep([so_filename], [cpp_filename]):
       #print(comp_cmd)
       _shell(comp_cmd)
 

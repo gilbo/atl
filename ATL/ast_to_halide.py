@@ -3,7 +3,8 @@ from .prelude import *
 
 from . import atl_types as T
 from .frontend import AST
-from .halide_ir import HIR
+from .halide_ir import HIR, HIR_CPP_String
+from .halide_ir import CJit as HIR_CJit
 
 from fractions import Fraction
 
@@ -31,13 +32,13 @@ class Compile:
 
     # bind size variables to pipeline parameters
     for sd in ast.sizes:
-      sz_param        = HIR.Param( str(sd.name), HIR.i32 )
+      sz_param        = HIR.Param( sd.name, HIR.i32 )
       self._params.append(sz_param)
       self._ctxt.set(sd.name, sz_param)
 
     # bind variables to images or pipeline parameters
     for vd in ast.vars:
-      def bind_var(typ=vd.type,name=str(vd.name)):
+      def bind_var(typ=vd.type,name=vd.name):
         if typ == T.num:
           # create a parameter
           v_param     = HIR.Param( name, HIR.f64 )
@@ -54,7 +55,7 @@ class Compile:
           assert type(typ) is T.Tuple
           labels      = ( typ.labels.names if typ.labels is not None else
                           [ str(i) for i in range(0,len(typ.types)) ] )
-          return tuple( bind_var(subtyp, f"{name}_{label}")
+          return tuple( bind_var(subtyp, Sym(f"{name}_{label}"))
                         for label, subtyp in zip(labels, typ.types) )
       self._ctxt.set( vd.name, bind_var() )
 
@@ -63,7 +64,7 @@ class Compile:
       rngs            = [ self._get_range(sz) for sz in rd.sizes ]
       self._rel_sizes[rd.name] = rngs
       n_dims          = len(rd.sizes)
-      v_img           = HIR.Img( str(rd.name), n_dims, HIR.u8 )
+      v_img           = HIR.Img( rd.name, n_dims, HIR.u8 )
       self._imgs.append(v_img)
       self._ctxt.set( rd.name, HIR.ImgFunc(v_img) )
 
@@ -75,9 +76,9 @@ class Compile:
       body            = body.ret
 
     # process the output, potentially as a tuple...
-    def bind_output(e=body, name='out'):
+    def bind_output(e=body, name=Sym('out')):
       if type(e) is AST.Tuple:
-        args          = [ bind_output(a, f"{name}_{i}")
+        args          = [ bind_output(a, Sym(f"{name}_{i}"))
                           for i,a in enumerate(e.args) ]
         return args
       elif type(e.type) is T.Tensor:
@@ -87,7 +88,7 @@ class Compile:
         return out_func
       else:
         assert e.type is T.num
-        out_sym       = Sym(name)
+        out_sym       = name
         out_stmt      = AST.assign( out_sym, e.type, e, e.srcinfo )
         self._stmts.append( self._compile_stmt(out_stmt) )
         out_func      = self._ctxt.get(out_sym)
@@ -106,7 +107,65 @@ class Compile:
     )
     #print(self._pipeline)
 
+  def make_cjit(self, vs, sizes, relations, out):
+    if hasattr(self, '_cjit'):
+      return
+
+    params      = []
+    param_typs  = []
+    img_ranges  = []
+    out_ranges  = []
+
+    # unpack sizes
+    for sz in sizes:
+      params.append(sz)
+      param_typs.append(int)
+
+    # unpack vars
+    def unpack_var(v):
+      if isinstance(v, tuple):
+        for subv in v:
+          unpack_var(subv)
+      elif type(v) is np.ndarray:
+        img_ranges.append(v.shape)
+      else:
+        assert type(v) is float
+        params.append(v)
+        param_typs.append(float)
+    for v in vs:
+      unpack_var(v)
+
+    # unpack relations
+    for R in relations:
+      assert type(R) is np.ndarray
+      img_ranges.append(R.shape)
+
+    def unpack_out(val):
+      if isinstance(val, tuple):
+        for o in val:
+          unpack_out(o)
+      else:
+        assert type(val) is np.ndarray
+        out_ranges.append(val.shape)
+    unpack_out(out)
+
+    # generate a cjit object...
+    self._cjit = HIR_CJit(self._ast,
+                          self._pipeline,
+                          params,
+                          param_typs,
+                          img_ranges,
+                          out_ranges)
+
+
+  def cpp_str(self, vs, sizes, relations, out):
+    self.make_cjit(vs, sizes, relations, out)
+    
+    print(self._pipeline)
+    return self._cjit.codestr()
+
   def __call__(self, vs, sizes, relations, out):
+    self.make_cjit(vs, sizes, relations, out)
 
     # we need to pack lists of the following things
     params      = []
@@ -151,7 +210,8 @@ class Compile:
     #print('IMGS\n',imgs)
 
     # invoke the pipeline
-    self._pipeline(params, imgs, outputs)
+    self._cjit(params, imgs, outputs)
+    #self._pipeline(params, imgs, outputs)
 
   def _get_range(self,atl_rng):
     if type(atl_rng) is int:
@@ -163,7 +223,7 @@ class Compile:
       return HIR.Range( HIR.Const(0,HIR.i32), HIR.Eparam(sz_p) )
 
   def _new_rdom(self, name, rng):
-    rdom        = HIR.RDom(str(name), [rng])
+    rdom        = HIR.RDom(name, [rng])
     self._rdoms.append(rdom)
     self._ctxt.set(name, rdom)
     return rdom
@@ -171,7 +231,7 @@ class Compile:
   def _compile_stmt(self, stmt):
     # create Func symbol and bind it
     n_dim       = 1 if stmt.type == T.num else len(stmt.type.shape())
-    func        = HIR.Func(str(stmt.name), n_dim, HIR.f64)
+    func        = HIR.Func(stmt.name, n_dim, HIR.f64)
     self._ctxt.set(stmt.name, func)
     self._funcs.append(func)
 
@@ -179,12 +239,12 @@ class Compile:
     # bind argument/func pure-variables...
     ast_rhs     = stmt.rhs
     if stmt.type == T.num:
-      arg_vars  = [ HIR.Var('_0_') ]
+      arg_vars  = [ HIR.Var(Sym('_0_')) ]
       self._vars.append(arg_vars[0])
     elif type(ast_rhs) is AST.Var:
       # special case of tensor aliasing
       shape     = stmt.type.shape()
-      arg_vars  = [ HIR.Var(f"_{i}_") for i in range(0,len(shape)) ]
+      arg_vars  = [ HIR.Var(Sym(f"_{i}_")) for i in range(0,len(shape)) ]
       self._vars += arg_vars
       rhs_func  = self._ctxt.get(ast_rhs.name)
       hir_rhs   = HIR.FAccess(rhs_func, [ HIR.Evar(v) for v in arg_vars ])
@@ -194,7 +254,7 @@ class Compile:
       typ       = stmt.type
       assert typ == ast_rhs.type
       while type(ast_rhs) is AST.Gen:
-        hvar    = HIR.Var( str(ast_rhs.name) )
+        hvar    = HIR.Var( ast_rhs.name )
         self._vars.append(hvar)
         self._ctxt.set(ast_rhs.name, hvar)
         arg_vars.append(hvar)

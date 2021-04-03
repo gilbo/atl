@@ -166,12 +166,14 @@ class Function:
     Interpret(self._ast, vs, szs, rels, output)
     return self._pack_return_scalars(self._ast.rettype, output)
 
+  def _hir_compiled(self):
+    if not hasattr(self, '_jit_halide_compiled'):
+      self._jit_halide_compiled = HCompile(self._prenorm_ast())
+    return self._jit_halide_compiled
+
   def jit_exec(self, *args, **kwargs):
     vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
-    if not hasattr(self, '_jit_halide_compiled'):
-      #print(self._prenorm_ast())
-      self._jit_halide_compiled = HCompile(self._prenorm_ast())
-    self._jit_halide_compiled(vs, szs, rels, output)
+    self._hir_compiled()(vs, szs, rels, output)
     return self._pack_return_scalars(self._ast.rettype, output)
 
   def cjit(self, *args, **kwargs):
@@ -183,8 +185,8 @@ class Function:
     return self._pack_return_scalars(self._ast.rettype, output)
 
   def __call__(self, *args, **kwargs):
-    #return self.jit_exec(*args,**kwargs)
-    return self.cjit(*args,**kwargs)
+    return self.jit_exec(*args,**kwargs)
+    #return self.cjit(*args,**kwargs)
     #return self.interpret(*args,**kwargs)
 
   def perf_counts(self, *args, **kwargs):
@@ -556,4 +558,11 @@ class Function:
   def _TEST_NIR_filterdown(self):
     normed          = self._TEST_PreNormalization()
     return normed._nir_filterdown()
+
+  def _TEST_HIR_compilestr(self,*args,**kwargs):
+    vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
+    return self._hir_compiled().cpp_str(vs, szs, rels, output)
+
+
+
 

@@ -177,6 +177,13 @@ class FunctionTestCase:
     nir_func      = self.gen_func_memo()._TEST_NIR_Roundtrip_YesSimp()
     #print(nir_func)
 
+  #def test_print_hir_cppstr(self):
+  #  func                      = self.gen_func_memo()
+  #  fname, in_data, out_data  = self.discover_rand_data()[0]
+  #  with self.subTest(data=fname):
+  #    cpp_str   = func._TEST_HIR_compilestr(*in_data)
+  #    print(cpp_str)
+
   def test_interpreter(self):
     for fname,in_data,out_data in self.discover_data():
       with self.subTest(data=fname):
@@ -189,11 +196,11 @@ class FunctionTestCase:
     func                  = func._TEST_PreNormalization()
     for fname,in_data,out_data in self.discover_rand_data():
       with self.subTest(data=fname):
-        #interp_out        = func.jit_exec(*in_data)
-        interp_out        = func.cjit(*in_data)
-        print(in_data)
-        print(func._cjit_compiled.codestr())
-        print(out_data, interp_out)
+        interp_out        = func.jit_exec(*in_data)
+        #interp_out        = func.cjit(*in_data)
+        #print(in_data)
+        #print(func._cjit_compiled.codestr())
+        #print(out_data, interp_out)
         np.testing.assert_allclose(out_data, interp_out)
 
   def test_let_lift(self):
@@ -308,7 +315,7 @@ class FunctionTestCase:
     adj_func              = func._TEST_NIR_Adjoint(**deriv_sig)
     adj_func              = adj_func._TEST_NIR_filterdown()
     ref_dfunc             = self.gen_deriv_memo()
-    print(adj_func)
+    #print(adj_func)
     for fname,in_data,d_in,d_out in self.discover_rand_adjoint_inout():
       with self.subTest(data=fname):
         #print('D_IN\n',d_in)
@@ -357,7 +364,7 @@ class FunctionTestCase:
     adj_func              = orig._TEST_NIR_Adjoint(**deriv_sig)
     adj_func              = adj_func._TEST_NIR_filterdown()
     filterdown            = orig._TEST_NIR_filterdown()
-    print(filterdown)
+    #print(filterdown)
     #fname,in_data,d_in_data = self.discover_rand_deriv_datum()
     fname,in_data,d_in,d_out = self.discover_rand_adjoint_inout()[0]
     with self.subTest(data=fname):

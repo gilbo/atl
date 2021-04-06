@@ -184,6 +184,8 @@ class AST_to_NIR:
       for a in args: assert a.type == self._ranges_type()
       if e.f == B.sqrt:
         return NIR.Pow( args[0], Fraction(1,2), self._ranges_type() )
+      elif e.f == B.pow and isinstance(args[1], NIR.Const):
+        return NIR.Pow( args[0], Fraction(a.val), self._ranges_type() )
       else:
         return NIR.BuiltIn( e.f, args, self._ranges_type() )
 
@@ -595,10 +597,10 @@ class NIR_to_AST:
 
       elif is_small_int(e.power):
         ast         = AST.BinOp("*", base, base, T.num, null_srcinfo())
-        if abs(e.power) == -2: pass
-        elif abs(e.power) == -3:
+        if abs(e.power) == 2: pass
+        elif abs(e.power) == 3:
           ast = AST.BinOp("*", base, ast, T.num, null_srcinfo())
-        elif abs(e.power) == -4:
+        elif abs(e.power) == 4:
           ast = AST.BinOp("*", ast, ast, T.num, null_srcinfo())
         if e.power > 0:
           return ast

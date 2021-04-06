@@ -70,7 +70,7 @@ def macro(func):
   func_locals   = stack_frames[1].frame.f_locals
   assert(type(func_locals) == dict)
   srclocals     = Environment(func_locals)
-  for nm in ['sin','cos','sqrt','select_gt']:
+  for nm in ['sin','cos','sqrt','select_gt','ln','pow']:
     srclocals[nm]   = getattr(builtins, nm)
   srclocals['max']  = builtins.fmax
   srclocals['min']  = builtins.fmin
@@ -138,7 +138,7 @@ def func(func):
   func_locals   = stack_frames[1].frame.f_locals
   assert(type(func_locals) == dict)
   srclocals     = Environment(func_locals)
-  for nm in ['sin','cos','sqrt','select_gt']:
+  for nm in ['sin','cos','sqrt','select_gt','ln','pow']:
     srclocals[nm]   = getattr(builtins, nm)
   srclocals['max']  = builtins.fmax
   srclocals['min']  = builtins.fmin

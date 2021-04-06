@@ -14,6 +14,8 @@ import math
 
 #from .interpreter import Interpret
 
+from fractions import Fraction
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -200,7 +202,7 @@ class _Ln(ScalarBI):
     return HIR.MathFn1("log", x)
 
   def C_compile(self, x):
-    return f"ln({x})"
+    return f"log({x})"
 
   def interpret(self,x):
     return math.log(x)

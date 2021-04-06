@@ -98,6 +98,7 @@ def argcheck_python_value(ctxt, typ, val, arg_id, is_output=False):
       for k in range(0,i): t_stride *= shape[k]
       assert val.strides[i] % val.itemsize == 0, 'sanity'
       np_stride = val.strides[i] // val.itemsize
+      if npd == 1: continue  # See point 1 in https://numpy.org/doc/stable/reference/arrays.ndarray.html#internal-memory-layout-of-an-ndarray
       if t_stride != np_stride:
         raise TypeError(f"{pre} expected tight ndarray layout with "
                         f"dimensions nested right/outermost "

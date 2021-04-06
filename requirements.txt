@@ -1,3 +1,5 @@
 asdl
 numpy
+scipy
+matplotlib
 pysmt

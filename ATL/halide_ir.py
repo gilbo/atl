@@ -946,9 +946,22 @@ class CJit:
     so_filename         = os.path.join(_C_CACHE,fname+".so")
     gen_func_name       = self._gen_func_name
 
-    cmdstr1 = (f"{exec_filename} -g {gen_func_name} -e object,c_header "+
+    autosched_lookup = {
+        'Mullapudi2016': os.path.join(_HALIDE_LIB, "libautoschedule_mullapudi2016.so"),
+        'Li2018': os.path.join(_HALIDE_LIB, "libautoschedule_li2018.so"),
+        'Adams2019': os.path.join(_HALIDE_LIB, "libautoschedule_adams2019.so"),
+    }
+    # current_autoscheduler = 'Mullapudi2016'
+    current_autoscheduler = 'Li2018'
+    # current_autoscheduler = 'Adams2019'
+    autosched_file = autosched_lookup[current_autoscheduler]
+
+    cmdstr1 = (f"{exec_filename} -g {gen_func_name} -e object,c_header,c_source,schedule "+
                f"-f {fname} "+ # generates .o and .h file
+               f"-p {autosched_file} -s {current_autoscheduler} "+
+               f"auto_schedule=true " +
                f"-o {_C_CACHE} target=host")
+    print(cmdstr1)
 
     cmdstr2 = (f"clang -fPIC -shared {obj_filename} -o {so_filename}")
 

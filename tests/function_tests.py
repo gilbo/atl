@@ -173,210 +173,210 @@ class FunctionTestCase:
     dfunc         = self.gen_func_memo()._TEST_NIR_Adjoint(**deriv_sig)
     #print(dfunc)
 
-  def test_print_nir_roundtrip(self):
-    nir_func      = self.gen_func_memo()._TEST_NIR_Roundtrip_YesSimp()
-    #print(nir_func)
-
-  #def test_print_hir_cppstr(self):
-  #  func                      = self.gen_func_memo()
-  #  fname, in_data, out_data  = self.discover_rand_data()[0]
-  #  with self.subTest(data=fname):
-  #    cpp_str   = func._TEST_HIR_compilestr(*in_data)
-  #    print(cpp_str)
-
-  def test_interpreter(self):
-    for fname,in_data,out_data in self.discover_data():
-      with self.subTest(data=fname):
-        func              = self.gen_func_memo()
-        comp_out          = func.interpret(*in_data)
-        np.testing.assert_allclose(comp_out, out_data)
-
-  def test_compiler(self):
-    func                  = self.gen_func_memo()
-    func                  = func._TEST_PreNormalization()
-    for fname,in_data,out_data in self.discover_rand_data():
-      with self.subTest(data=fname):
-        interp_out        = func.jit_exec(*in_data)
-        #interp_out        = func.cjit(*in_data)
-        #print(in_data)
-        #print(func._cjit_compiled.codestr())
-        #print(out_data, interp_out)
-        np.testing.assert_allclose(out_data, interp_out)
-
-  def test_let_lift(self):
-    func                  = self.gen_func_memo()
-    liftfunc              = func._TEST_LetLift()
-    for fname,in_data,out_data in self.discover_rand_data():
-      with self.subTest(data=fname):
-        lift_out          = liftfunc.interpret(*in_data)
-        np.testing.assert_allclose(out_data, lift_out)
-
-  def test_tuple_elim(self):
-    func                  = self.gen_func_memo()
-    liftfunc              = func._TEST_TupleElimination()
-    for fname,in_data,out_data in self.discover_rand_data():
-      with self.subTest(data=fname):
-        lift_out          = liftfunc.interpret(*in_data)
-        np.testing.assert_allclose(out_data, lift_out)
-
-  def test_pre_normalization(self):
-    func                  = self.gen_func_memo()
-    liftfunc              = func._TEST_PreNormalization()
-    for fname,in_data,out_data in self.discover_rand_data():
-      with self.subTest(data=fname):
-        lift_out          = liftfunc.interpret(*in_data)
-        np.testing.assert_allclose(out_data, lift_out)
-
-  def test_nir_roundtrip_no_simp(self):
-    # only test with one datum pair because we expect it's inefficient
-    fname,in_data,out_data = self.discover_rand_datum()
-    with self.subTest(data=fname):
-      func                = self.gen_func_memo()
-      nir_func            = func._TEST_NIR_Roundtrip_NoSimp()
-      nir_out             = nir_func.interpret(*in_data)
-      np.testing.assert_allclose(out_data, nir_out)
-
-  def test_nir_roundtrip_yes_simp(self):
-    # TODO: change back to multiple data
-    fname,in_data,out_data = self.discover_rand_datum()
-    with self.subTest(data=fname):
-      func                = self.gen_func_memo()
-      nir_func            = func._TEST_NIR_Roundtrip_YesSimp()
-      nir_out             = nir_func.interpret(*in_data)
-      np.testing.assert_allclose(out_data, nir_out)
-
-  def test_filterdown(self):
-    func                  = self.gen_func_memo()
-    nir_func              = func._TEST_NIR_Roundtrip_YesSimp()
-    nir_func              = nir_func._TEST_NIR_filterdown()
-    #print(nir_func)
-    fname,in_data,out_data = self.discover_rand_datum()
-    with self.subTest(data=fname):
-      nir_out             = nir_func.interpret(*in_data)
-      np.testing.assert_allclose(out_data, nir_out)
-
-  def test_total_derivative_alone(self):
-    func                  = self.gen_func_memo()
-    deriv_sig             = self.gen_deriv_sig()
-    dfunc                 = func._TEST_TotalDeriv_Alone(**deriv_sig)
-    ref_dfunc             = self.gen_deriv_memo()
-    for fname,in_data,d_in_data in self.discover_rand_deriv_input():
-      with self.subTest(data=fname):
-        df_out            = dfunc.interpret(*(in_data+d_in_data))
-        ref_out           = ref_dfunc.interpret(*(in_data+d_in_data))
-        np.testing.assert_allclose(df_out, ref_out)
-
-  def test_derivative(self):
-    func                  = self.gen_func_memo()
-    deriv_sig             = self.gen_deriv_sig()
-    dfunc                 = func._TEST_TotalDeriv(**deriv_sig)
-    ref_dfunc             = self.gen_deriv_memo()
-    for fname,in_data,d_in_data in self.discover_rand_deriv_input():
-      with self.subTest(data=fname):
-        df_out            = dfunc(*(in_data+d_in_data))
-        ref_out           = ref_dfunc(*(in_data+d_in_data))
-        np.testing.assert_allclose(df_out, ref_out)
-
-  def test_nir_derivative(self):
-    func                  = self.gen_func_memo()
-    deriv_sig             = self.gen_deriv_sig()
-    dfunc                 = func._TEST_NIR_Deriv(**deriv_sig)
-    ref_dfunc             = self.gen_deriv_memo()
-    for fname,in_data,d_in_data in self.discover_rand_deriv_input():
-      with self.subTest(data=fname):
-        df_out            = dfunc(*(in_data+d_in_data))
-        ref_out           = ref_dfunc(*(in_data+d_in_data))
-        np.testing.assert_allclose(df_out, ref_out)
-
-  def test_nir_adjoint(self):
-    func                  = self.gen_func_memo()
-    deriv_sig             = self.gen_deriv_sig()
-    d_in_is_tup           = (len(deriv_sig) > 1)
-    adj_func              = func._TEST_NIR_Adjoint(**deriv_sig)
-    ref_dfunc             = self.gen_deriv_memo()
-    for fname,in_data,d_in,d_out in self.discover_rand_adjoint_inout():
-      with self.subTest(data=fname):
-        #print('D_IN\n',d_in)
-        #print('D_OUT\n',d_out)
-        adj_out           = adj_func(*( in_data+(d_out,) ))
-        ref_out           = ref_dfunc(*(in_data+d_in))
-        adj_grad_out      = ( adj_out.grad_out if d_in_is_tup
-                                             else (adj_out.grad_out,) )
-        #print('adj_out\n',adj_out)
-        fwd_val           = inner_prod(adj_grad_out, d_in)
-        ref_val           = inner_prod(ref_out[1], d_out)
-        #print("OH HERE\n", fwd_val, ref_val)
-        np.testing.assert_allclose(fwd_val, ref_val)
-
-  def test_filterdown_adjoint(self):
-    func                  = self.gen_func_memo()
-    deriv_sig             = self.gen_deriv_sig()
-    d_in_is_tup           = (len(deriv_sig) > 1)
-    adj_func              = func._TEST_NIR_Adjoint(**deriv_sig)
-    adj_func              = adj_func._TEST_NIR_filterdown()
-    ref_dfunc             = self.gen_deriv_memo()
-    #print(adj_func)
-    for fname,in_data,d_in,d_out in self.discover_rand_adjoint_inout():
-      with self.subTest(data=fname):
-        #print('D_IN\n',d_in)
-        #print('D_OUT\n',d_out)
-        adj_out           = adj_func.interpret(*( in_data+(d_out,) ))
-        ref_out           = ref_dfunc.interpret(*(in_data+d_in))
-        #print("*\n*\n*\n*\n")
-        adj_grad_out      = ( adj_out.grad_out if d_in_is_tup
-                                             else (adj_out.grad_out,) )
-        #print('adj_out\n',adj_out.out)
-        #print('ref_out\n',ref_out[0])
-        fwd_val           = inner_prod(adj_grad_out, d_in)
-        ref_val           = inner_prod(ref_out[1], d_out)
-        #print("OH HERE\n", fwd_val, ref_val)
-        np.testing.assert_allclose(fwd_val, ref_val)
-
-  #def test_print_perf_report(self):
-  #  orig                  = self.gen_func_memo()
-  #  opt                   = orig._TEST_NIR_Roundtrip_YesSimp()
-  #  #print(orig)
-  #  #print(opt)
-  #  fname,in_data,out_data = self.discover_rand_datum()
-  #  with self.subTest(data=fname):
-  #    print(">> orig")
-  #    orig.perf_counts(*in_data)
-  #    print(">> NIR roundtrip")
-  #    opt.perf_counts(*in_data)
-
-  #def test_print_perf_report(self):
-  #  orig                  = self.gen_func_memo()
-  #  opt                   = orig._TEST_NIR_Roundtrip_YesSimp()
-  #  deriv_sig             = self.gen_deriv_sig()
-  #  deriv                 = orig._TEST_NIR_Deriv(**deriv_sig)
-  #  fname,in_data,d_in_data = self.discover_rand_deriv_datum()
-  #  with self.subTest(data=fname):
-  #    print(">> nir-opt")
-  #    opt.perf_counts(*in_data)
-  #    print(">> deriv")
-  #    deriv.perf_counts(*(in_data+d_in_data))
-
-  def test_print_perf_report(self):
-    orig                  = self.gen_func_memo()
-    opt                   = orig._TEST_NIR_Roundtrip_YesSimp()
-    deriv_sig             = self.gen_deriv_sig()
-    #deriv                 = orig._TEST_NIR_Deriv(**deriv_sig)
-    adj_func              = orig._TEST_NIR_Adjoint(**deriv_sig)
-    adj_func              = adj_func._TEST_NIR_filterdown()
-    filterdown            = orig._TEST_NIR_filterdown()
-    #print(filterdown)
-    #fname,in_data,d_in_data = self.discover_rand_deriv_datum()
-    fname,in_data,d_in,d_out = self.discover_rand_adjoint_inout()[0]
-    with self.subTest(data=fname):
-      print(">> orig")
-      orig.perf_counts(*in_data)
-      print(">> nir-opt")
-      opt.perf_counts(*in_data)
-      print(">> nir-filterdown")
-      filterdown.perf_counts(*in_data)
-      print(">> adjoint")
-      adj_func.perf_counts(*( in_data+(d_out,) ))
-  
+  # def test_print_nir_roundtrip(self):
+  #   nir_func      = self.gen_func_memo()._TEST_NIR_Roundtrip_YesSimp()
+  #   #print(nir_func)
+  #
+  # #def test_print_hir_cppstr(self):
+  # #  func                      = self.gen_func_memo()
+  # #  fname, in_data, out_data  = self.discover_rand_data()[0]
+  # #  with self.subTest(data=fname):
+  # #    cpp_str   = func._TEST_HIR_compilestr(*in_data)
+  # #    print(cpp_str)
+  #
+  # def test_interpreter(self):
+  #   for fname,in_data,out_data in self.discover_data():
+  #     with self.subTest(data=fname):
+  #       func              = self.gen_func_memo()
+  #       comp_out          = func.interpret(*in_data)
+  #       np.testing.assert_allclose(comp_out, out_data)
+  #
+  # def test_compiler(self):
+  #   func                  = self.gen_func_memo()
+  #   func                  = func._TEST_PreNormalization()
+  #   for fname,in_data,out_data in self.discover_rand_data():
+  #     with self.subTest(data=fname):
+  #       interp_out        = func.jit_exec(*in_data)
+  #       #interp_out        = func.cjit(*in_data)
+  #       #print(in_data)
+  #       #print(func._cjit_compiled.codestr())
+  #       #print(out_data, interp_out)
+  #       np.testing.assert_allclose(out_data, interp_out)
+  #
+  # def test_let_lift(self):
+  #   func                  = self.gen_func_memo()
+  #   liftfunc              = func._TEST_LetLift()
+  #   for fname,in_data,out_data in self.discover_rand_data():
+  #     with self.subTest(data=fname):
+  #       lift_out          = liftfunc.interpret(*in_data)
+  #       np.testing.assert_allclose(out_data, lift_out)
+  #
+  # def test_tuple_elim(self):
+  #   func                  = self.gen_func_memo()
+  #   liftfunc              = func._TEST_TupleElimination()
+  #   for fname,in_data,out_data in self.discover_rand_data():
+  #     with self.subTest(data=fname):
+  #       lift_out          = liftfunc.interpret(*in_data)
+  #       np.testing.assert_allclose(out_data, lift_out)
+  #
+  # def test_pre_normalization(self):
+  #   func                  = self.gen_func_memo()
+  #   liftfunc              = func._TEST_PreNormalization()
+  #   for fname,in_data,out_data in self.discover_rand_data():
+  #     with self.subTest(data=fname):
+  #       lift_out          = liftfunc.interpret(*in_data)
+  #       np.testing.assert_allclose(out_data, lift_out)
+  #
+  # def test_nir_roundtrip_no_simp(self):
+  #   # only test with one datum pair because we expect it's inefficient
+  #   fname,in_data,out_data = self.discover_rand_datum()
+  #   with self.subTest(data=fname):
+  #     func                = self.gen_func_memo()
+  #     nir_func            = func._TEST_NIR_Roundtrip_NoSimp()
+  #     nir_out             = nir_func.interpret(*in_data)
+  #     np.testing.assert_allclose(out_data, nir_out)
+  #
+  # def test_nir_roundtrip_yes_simp(self):
+  #   # TODO: change back to multiple data
+  #   fname,in_data,out_data = self.discover_rand_datum()
+  #   with self.subTest(data=fname):
+  #     func                = self.gen_func_memo()
+  #     nir_func            = func._TEST_NIR_Roundtrip_YesSimp()
+  #     nir_out             = nir_func.interpret(*in_data)
+  #     np.testing.assert_allclose(out_data, nir_out)
+  #
+  # def test_filterdown(self):
+  #   func                  = self.gen_func_memo()
+  #   nir_func              = func._TEST_NIR_Roundtrip_YesSimp()
+  #   nir_func              = nir_func._TEST_NIR_filterdown()
+  #   #print(nir_func)
+  #   fname,in_data,out_data = self.discover_rand_datum()
+  #   with self.subTest(data=fname):
+  #     nir_out             = nir_func.interpret(*in_data)
+  #     np.testing.assert_allclose(out_data, nir_out)
+  #
+  # def test_total_derivative_alone(self):
+  #   func                  = self.gen_func_memo()
+  #   deriv_sig             = self.gen_deriv_sig()
+  #   dfunc                 = func._TEST_TotalDeriv_Alone(**deriv_sig)
+  #   ref_dfunc             = self.gen_deriv_memo()
+  #   for fname,in_data,d_in_data in self.discover_rand_deriv_input():
+  #     with self.subTest(data=fname):
+  #       df_out            = dfunc.interpret(*(in_data+d_in_data))
+  #       ref_out           = ref_dfunc.interpret(*(in_data+d_in_data))
+  #       np.testing.assert_allclose(df_out, ref_out)
+  #
+  # def test_derivative(self):
+  #   func                  = self.gen_func_memo()
+  #   deriv_sig             = self.gen_deriv_sig()
+  #   dfunc                 = func._TEST_TotalDeriv(**deriv_sig)
+  #   ref_dfunc             = self.gen_deriv_memo()
+  #   for fname,in_data,d_in_data in self.discover_rand_deriv_input():
+  #     with self.subTest(data=fname):
+  #       df_out            = dfunc(*(in_data+d_in_data))
+  #       ref_out           = ref_dfunc(*(in_data+d_in_data))
+  #       np.testing.assert_allclose(df_out, ref_out)
+  #
+  # def test_nir_derivative(self):
+  #   func                  = self.gen_func_memo()
+  #   deriv_sig             = self.gen_deriv_sig()
+  #   dfunc                 = func._TEST_NIR_Deriv(**deriv_sig)
+  #   ref_dfunc             = self.gen_deriv_memo()
+  #   for fname,in_data,d_in_data in self.discover_rand_deriv_input():
+  #     with self.subTest(data=fname):
+  #       df_out            = dfunc(*(in_data+d_in_data))
+  #       ref_out           = ref_dfunc(*(in_data+d_in_data))
+  #       np.testing.assert_allclose(df_out, ref_out)
+  #
+  # def test_nir_adjoint(self):
+  #   func                  = self.gen_func_memo()
+  #   deriv_sig             = self.gen_deriv_sig()
+  #   d_in_is_tup           = (len(deriv_sig) > 1)
+  #   adj_func              = func._TEST_NIR_Adjoint(**deriv_sig)
+  #   ref_dfunc             = self.gen_deriv_memo()
+  #   for fname,in_data,d_in,d_out in self.discover_rand_adjoint_inout():
+  #     with self.subTest(data=fname):
+  #       #print('D_IN\n',d_in)
+  #       #print('D_OUT\n',d_out)
+  #       adj_out           = adj_func(*( in_data+(d_out,) ))
+  #       ref_out           = ref_dfunc(*(in_data+d_in))
+  #       adj_grad_out      = ( adj_out.grad_out if d_in_is_tup
+  #                                            else (adj_out.grad_out,) )
+  #       #print('adj_out\n',adj_out)
+  #       fwd_val           = inner_prod(adj_grad_out, d_in)
+  #       ref_val           = inner_prod(ref_out[1], d_out)
+  #       #print("OH HERE\n", fwd_val, ref_val)
+  #       np.testing.assert_allclose(fwd_val, ref_val)
+  #
+  # def test_filterdown_adjoint(self):
+  #   func                  = self.gen_func_memo()
+  #   deriv_sig             = self.gen_deriv_sig()
+  #   d_in_is_tup           = (len(deriv_sig) > 1)
+  #   adj_func              = func._TEST_NIR_Adjoint(**deriv_sig)
+  #   adj_func              = adj_func._TEST_NIR_filterdown()
+  #   ref_dfunc             = self.gen_deriv_memo()
+  #   #print(adj_func)
+  #   for fname,in_data,d_in,d_out in self.discover_rand_adjoint_inout():
+  #     with self.subTest(data=fname):
+  #       #print('D_IN\n',d_in)
+  #       #print('D_OUT\n',d_out)
+  #       adj_out           = adj_func.interpret(*( in_data+(d_out,) ))
+  #       ref_out           = ref_dfunc.interpret(*(in_data+d_in))
+  #       #print("*\n*\n*\n*\n")
+  #       adj_grad_out      = ( adj_out.grad_out if d_in_is_tup
+  #                                            else (adj_out.grad_out,) )
+  #       #print('adj_out\n',adj_out.out)
+  #       #print('ref_out\n',ref_out[0])
+  #       fwd_val           = inner_prod(adj_grad_out, d_in)
+  #       ref_val           = inner_prod(ref_out[1], d_out)
+  #       #print("OH HERE\n", fwd_val, ref_val)
+  #       np.testing.assert_allclose(fwd_val, ref_val)
+  #
+  # #def test_print_perf_report(self):
+  # #  orig                  = self.gen_func_memo()
+  # #  opt                   = orig._TEST_NIR_Roundtrip_YesSimp()
+  # #  #print(orig)
+  # #  #print(opt)
+  # #  fname,in_data,out_data = self.discover_rand_datum()
+  # #  with self.subTest(data=fname):
+  # #    print(">> orig")
+  # #    orig.perf_counts(*in_data)
+  # #    print(">> NIR roundtrip")
+  # #    opt.perf_counts(*in_data)
+  #
+  # #def test_print_perf_report(self):
+  # #  orig                  = self.gen_func_memo()
+  # #  opt                   = orig._TEST_NIR_Roundtrip_YesSimp()
+  # #  deriv_sig             = self.gen_deriv_sig()
+  # #  deriv                 = orig._TEST_NIR_Deriv(**deriv_sig)
+  # #  fname,in_data,d_in_data = self.discover_rand_deriv_datum()
+  # #  with self.subTest(data=fname):
+  # #    print(">> nir-opt")
+  # #    opt.perf_counts(*in_data)
+  # #    print(">> deriv")
+  # #    deriv.perf_counts(*(in_data+d_in_data))
+  #
+  # def test_print_perf_report(self):
+  #   orig                  = self.gen_func_memo()
+  #   opt                   = orig._TEST_NIR_Roundtrip_YesSimp()
+  #   deriv_sig             = self.gen_deriv_sig()
+  #   #deriv                 = orig._TEST_NIR_Deriv(**deriv_sig)
+  #   adj_func              = orig._TEST_NIR_Adjoint(**deriv_sig)
+  #   adj_func              = adj_func._TEST_NIR_filterdown()
+  #   filterdown            = orig._TEST_NIR_filterdown()
+  #   #print(filterdown)
+  #   #fname,in_data,d_in_data = self.discover_rand_deriv_datum()
+  #   fname,in_data,d_in,d_out = self.discover_rand_adjoint_inout()[0]
+  #   with self.subTest(data=fname):
+  #     print(">> orig")
+  #     orig.perf_counts(*in_data)
+  #     print(">> nir-opt")
+  #     opt.perf_counts(*in_data)
+  #     print(">> nir-filterdown")
+  #     filterdown.perf_counts(*in_data)
+  #     print(">> adjoint")
+  #     adj_func.perf_counts(*( in_data+(d_out,) ))
+  #
 
   def test_wallclock_perf(self):
     orig                  = self.gen_func_memo()

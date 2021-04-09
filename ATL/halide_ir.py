@@ -506,7 +506,7 @@ All_Autoschedulers = {
     'Adams2019'     : 'libautoschedule_adams2019.so',
 }
 
-current_autoscheduler = 'Adams2019'
+current_autoscheduler = 'Li2018'
 def set_autoscheduler(name):
     if name in All_Autoschedulers:
         current_autoscheduler = name

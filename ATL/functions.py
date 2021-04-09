@@ -24,6 +24,15 @@ from .checks      import TC_Lite
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
+_All_backends = ['C','Halide']
+_default_backend = 'C'
+def set_backend(name):
+  if name in _All_backends:
+    _default_backend = name
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
 class Function:
   def __init__(self, f, _do_bound_check=True):
     if ( type(f) is not UST.function and
@@ -176,18 +185,24 @@ class Function:
     self._hir_compiled()(vs, szs, rels, output)
     return self._pack_return_scalars(self._ast.rettype, output)
 
+  def _cjit_compiled(self):
+    if not hasattr(self, '_cjit_object'):
+      #print(self._prenorm_ast())
+      self._cjit_object = CJit(self._prenorm_ast())
+    return self._cjit_object
+
   def cjit(self, *args, **kwargs):
     vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
-    if not hasattr(self, '_cjit_compiled'):
-      #print(self._prenorm_ast())
-      self._cjit_compiled = CJit(self._prenorm_ast())
-    self._cjit_compiled(vs, szs, rels, output)
+    self._cjit_compiled()(vs, szs, rels, output)
     return self._pack_return_scalars(self._ast.rettype, output)
 
   def __call__(self, *args, **kwargs):
-    return self.jit_exec(*args,**kwargs)
-    #return self.cjit(*args,**kwargs)
-    #return self.interpret(*args,**kwargs)
+    if _default_backend == 'Halide':
+      return self.jit_exec(*args,**kwargs)
+    elif _default_backend == 'C':
+      return self.cjit(*args,**kwargs)
+      #return self.interpret(*args,**kwargs)
+    else: assert False, "impossible case"
 
   def perf_counts(self, *args, **kwargs):
     vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
@@ -196,6 +211,9 @@ class Function:
   def hl_cpp_str(self, *args, **kwargs):
     vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
     return self._hir_compiled().cpp_str(vs, szs, rels, output)
+
+  def c_str(self):
+    return self._cjit_compiled().codestr()
 
 
   # ----------------------------------------------------------------------- #

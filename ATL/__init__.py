@@ -25,6 +25,7 @@ from .atl_types import is_type,  Num, Tuple, Tensor
 from .parse_pyast import func, macro
 
 from .halide_ir import set_autoscheduler
+from .functions import set_backend
 
 __all__ = [
   "Function",
@@ -56,4 +57,5 @@ __all__ = [
   "Tensor",
   #
   "set_autoscheduler",
+  "set_backend",
 ]

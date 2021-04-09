@@ -193,6 +193,11 @@ class Function:
     vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
     Analysis(self._ast, vs, szs, rels)
 
+  def hl_cpp_str(self, *args, **kwargs):
+    vs, szs, rels, output = self._unpack_call_args(*args,**kwargs)
+    return self._hir_compiled().cpp_str(vs, szs, rels, output)
+
+
   # ----------------------------------------------------------------------- #
   #   Derivatives and Transformations                                       #
   # ----------------------------------------------------------------------- #

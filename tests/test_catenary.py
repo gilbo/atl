@@ -129,7 +129,7 @@ class TestCatenary(unittest.TestCase, FunctionTestCase):
   def rand_perf_inout(self):
     # this test puts the points of the chain in a line
     # from (0,0) to (1,0), but with jitter introduced
-    N         = int(1e6)
+    N         = int(1e5)
 
     link_w    = 200/(N+2)
     K_spring  = self.rand.uniform(0.8,1.2)

@@ -20,6 +20,14 @@ import numpy as np
 def _shell(cstr):
   subprocess.run(cstr, check=True, shell=True)
 
+def _quiet_shell(cstr):
+  proc = subprocess.Popen(cstr, shell=True, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT)
+  outs, err = proc.communicate()
+  if proc.returncode is None or proc.returncode != 0:
+    print(outs.decode('utf-8'))
+    raise subprocess.CalledProcessError(proc.returncode, cstr)
+
 _HERE_DIR       = os.path.dirname(os.path.abspath(__file__))
 _C_CACHE        = os.path.join(_HERE_DIR,'.atl_c_cache')
 if not os.path.isdir(_C_CACHE):

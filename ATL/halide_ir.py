@@ -498,38 +498,19 @@ del __call__
 #
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-#   Helpers and directory setup
-"""
-def _shell(cstr):
-  subprocess.run(cstr, check=True, shell=True)
+#   Helpers 
 
-_HERE_DIR       = os.path.dirname(os.path.abspath(__file__))
-_C_CACHE        = os.path.join(_HERE_DIR,'.atl_halide_cache')
-if not os.path.isdir(_C_CACHE):
-  os.mkdir(_C_CACHE)
+All_Autoschedulers = {
+    'Mullapudi2016' : 'libautoschedule_mullapudi2016.so',
+    'Li2018'        : 'libautoschedule_li2018.so',
+    'Adams2019'     : 'libautoschedule_adams2019.so',
+}
 
-def get_time(s):
-  if not os.path.exists(s):
-    return None
-  else:
-    return os.path.getmtime(s)
+current_autoscheduler = 'Adams2019'
+def set_autoscheduler(name):
+    if name in All_Autoschedulers:
+        current_autoscheduler = name
 
-# clean the cache when it exceeds 50MB;
-# keep all files created in the last day or so
-def clean_cache(size_trigger = int(50e6), clear_time_window = 86400.0):
-  curr_time   = time.time()
-  filenames   = [ os.path.join(_C_CACHE,f) for f in os.listdir(_C_CACHE) ]
-  used_size   = sum(os.path.getsize(f) for f in filenames)
-
-  if used_size > size_trigger:
-    for file in filenames:
-      mtime   = get_time(file)
-      if curr_time - mtime > clear_time_window:
-        os.remove(file)
-
-# try out a single clean every time we load this module
-clean_cache()
-"""
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -545,6 +526,10 @@ class HIR_CPP_String:
         self._lines     = []
 
         self._pipe      = pipe
+
+        # track indexing context of current statement
+        self._curr_args = []
+        self._sum_count = 0
 
         # start of file...
         self.line('#include "Halide.h"')
@@ -592,6 +577,7 @@ class HIR_CPP_String:
         # void schedule
         self.line("void schedule() {")
         self.push_scope(name=False)
+        self.line(f"// using auto-scheduler: {current_autoscheduler}")
         self.line("if(auto_schedule) {")
         self.push_scope()
         # estimate input params
@@ -635,7 +621,8 @@ class HIR_CPP_String:
             if stmt.f.name in self._ctxt:
                 assert any( stmt.f.name == o.name for o in self._pipe.outputs )
             else:
-                self.line(f"Func {self.new_name(stmt.f.name)};")
+                fname = self.new_name(stmt.f.name)
+                self.line(f'Func {fname}("{fname}");')
 
         self.line("{")
         self.push_scope()
@@ -662,8 +649,11 @@ class HIR_CPP_String:
             bds     = rdoms[r]
             bdargs  = []
             for rng in bds:
-                bdargs.append( self.compile_expr(rng.lo) )
-                bdargs.append( self.compile_expr(rng.extent) )
+                lo,  ls = self.compile_expr(rng.lo)
+                ext, es = self.compile_expr(rng.extent)
+                bdargs += [ lo, ext ]
+                assert len(ls) == 0, "did not expect big sums in bounds"
+                assert len(es) == 0, "did not expect big sums in bounds"
             self.line(f"RDom {self.new_name(r)}({','.join(bdargs)});")
 
         # next, build the left-hand-side of the stmt
@@ -671,10 +661,21 @@ class HIR_CPP_String:
         assert len(stmt.args) > 0
         if type(stmt) is HIR.PureDef:
             args    = [ self._ctxt[a.name] for a in stmt.args ]
+            self._curr_args = args.copy()
         else:
             assert type(stmt) is HIR.Update
-            args    = [ self.compile_expr(a) for a in stmt.args ]
-        rhs         = self.compile_expr(stmt.rhs)
+            tmp     = [ self.compile_expr(a) for a in stmt.args ]
+            args    = [ a[0] for a in tmp ]
+            assert all( len(a[1]) == 0
+                        for a in tmp ), "did not expect big sums in indices"
+            self._curr_args = args.copy()
+        # and then compile the right-hand-side
+        rhs, rstmts = self.compile_expr(stmt.rhs)
+
+        # dump all additional statements that were generated
+        for s in rstmts:
+            self.line(s)
+        # and then generate the statement we were proposing to start with
         self.line(f"{fname}({','.join(args)}) = {rhs};")
 
         self.pop_scope()
@@ -699,63 +700,105 @@ class HIR_CPP_String:
       "/":    60,
     }
     def compile_expr(self, e, prec=0):
+        """ returns (expr_str, [stmt_strs])
+            all of the stmt_strs should be composed
+            ahead of the expr_str as they may define relevant
+            temporaries... """
         etyp = type(e)
 
         if etyp is HIR.Const:
             if e.typ == f32:
-                return f"{e.v}f"
+                return (f"{e.v}f",[])
             elif e.typ == f64:
-                return f"Expr({e.v})"
+                return (f"Expr({e.v})",[])
             else:
-                return str(e.v)
+                return (str(e.v),[])
         elif etyp is HIR.Evar:
-            return self._ctxt[e.v.name]
+            return (self._ctxt[e.v.name],[])
         elif etyp is HIR.Erdom:
-            return self._ctxt[e.r.name]
+            return (self._ctxt[e.r.name],[])
         elif etyp is HIR.Eparam:
-            return self._ctxt[e.p.name]
+            return (self._ctxt[e.p.name],[])
         elif etyp is HIR.BinOp:
             op_prec = HIR_CPP_String._prec[e.op]
-            lhs = self.compile_expr(e.lhs, prec=op_prec)
-            rhs = self.compile_expr(e.rhs, prec=op_prec+1)
+            lhs, ls = self.compile_expr(e.lhs, prec=op_prec)
+            rhs, rs = self.compile_expr(e.rhs, prec=op_prec+1)
+            op = e.op
+            if op == "and":
+                op = "&&"
+            elif op == "or":
+                op = "||"
             exp = f'{lhs} {e.op} {rhs}'
             if prec > op_prec:
                 exp = f'({exp})'
-            return exp
+            return (exp,ls+rs)
         elif etyp is HIR.Min or etyp is HIR.Max:
             op  = "min" if etyp is HIR.Min else "max"
-            lhs = self.compile_expr(e.lhs)
-            rhs = self.compile_expr(e.rhs)
-            return f"{op}({lhs}, {rhs})"
+            lhs, ls = self.compile_expr(e.lhs)
+            rhs, rs = self.compile_expr(e.rhs)
+            return (f"{op}({lhs}, {rhs})",ls+rs)
         elif etyp is HIR.MathFn1:
-            return f'{e.name}({self.compile_expr(e.arg)})'
+            arg, ss = self.compile_expr(e.arg)
+            return (f'{e.name}({arg})',ss)
         elif etyp is HIR.Clamp:
-            val = self.compile_expr(e.val)
-            lo = self.compile_expr(e.lo)
-            hi = self.compile_expr(e.hi)
-            return f'clamp({val}, {lo}, {hi})'
+            val, vs = self.compile_expr(e.val)
+            lo,  ls = self.compile_expr(e.lo)
+            hi,  hs = self.compile_expr(e.hi)
+            return (f'clamp({val}, {lo}, {hi})',vs+ls+hs)
         elif etyp is HIR.Pow:
-            base = self.compile_expr(e.base)
-            exp = self.compile_expr(e.exp)
-            return f'pow({base}, {exp})'
+            base,bs = self.compile_expr(e.base)
+            exp, es = self.compile_expr(e.exp)
+            return (f'pow({base}, {exp})',bs+es)
         elif etyp is HIR.ATan2:
-            y = self.compile_expr(e.y)
-            x = self.compile_expr(e.x)
-            return f'atan2({y}, {x})'
+            y,   ys = self.compile_expr(e.y)
+            x,   xs = self.compile_expr(e.x)
+            return (f'atan2({y}, {x})',ys+xs)
         elif etyp is HIR.Select:
-            pred = self.compile_expr(e.pred)
-            lhs = self.compile_expr(e.lhs)
-            rhs = self.compile_expr(e.rhs)
-            return f'select({pred}, {lhs}, {rhs})'
+            pred,ps = self.compile_expr(e.pred)
+            lhs, ls = self.compile_expr(e.lhs)
+            rhs, rs = self.compile_expr(e.rhs)
+            return (f'select({pred}, {lhs}, {rhs})',ps+ls+rs)
         elif etyp is HIR.FAccess:
             nm = e.f.name if type(e.f) is HIR.Func else e.f.img.name
             name = self._ctxt[nm]
-            args = [ self.compile_expr(a) for a in e.args ]
-            return f'{name}({",".join(args)})'
+            tmp  = [ self.compile_expr(a) for a in e.args ]
+            args = [ a[0] for a in tmp ]
+            ss   = [ x for a in tmp for x in a[1] ] # flatten list of lists
+            return (f'{name}({",".join(args)})',ss)
         elif etyp is HIR.BigSum:
-            r    = self._ctxt[e.r.name]
-            body = self.compile_expr(e.body)
-            return f'sum({r}, {body})'
+            stmts   = []
+            # RDom variable
+            r       = self._ctxt[e.r.name]
+
+            # handle compiling the body with reduction variable substitution
+            # name collisions must be handled out-of-scope
+            pure_r  = self.new_name(e.r.name.copy())
+            self.push_scope(tab=False)
+            stmts += [f"Var {pure_r};"]
+            # but we need to hide the fact that we're re-binding the rdom
+            self._ctxt[e.r.name] = pure_r
+            self._curr_args = self._curr_args + [pure_r]
+            args_x  = ','.join(self._curr_args)
+            # call body
+            body,bs = self.compile_expr(e.body)
+            # cleanup
+            stmts += bs
+            self._curr_args = self._curr_args[:-1]
+            self.pop_scope(tab=False)
+
+            # create an earlier temp. func corresponding to the sum values
+            f0name = self.new_name(Sym(f"sum{self._sum_count}"))
+            self._sum_count +=1
+            f1name = self.new_name(Sym(f"sum{self._sum_count}"))
+            self._sum_count +=1
+            args    = ','.join(self._curr_args)
+            args_r  = ','.join(self._curr_args+[ self._ctxt[e.r.name] ])
+            stmts += [f'Func {f0name}("{f0name}");',
+                      f'Func {f1name}("{f1name}");',
+                      f"{f0name}({args_x}) = {body};",
+                      f"{f1name}({args}) = Expr(0.0);",
+                      f"{f1name}({args}) += {f0name}({args_r});"]
+            return (f"{f1name}({args})",stmts)
         else: assert False, "bad case"
 
     def line(self, s):
@@ -865,7 +908,7 @@ class HIR_CPP_String:
 
 from .cjit import (CJitSig, get_time, matches_file,
                    write_file, check_makedep, get_typstr,
-                   _C_CACHE, _shell)
+                   _C_CACHE, _shell, _quiet_shell)
 from .cjit import CJit as GenericCJit
 import hashlib
 
@@ -935,6 +978,7 @@ class CJit:
     if not matches_file(cppstr, cpp_filename):
         write_file(cppstr, cpp_filename)
     if check_makedep([exec_filename], [cpp_filename]):
+        #print(cmdstr)
         _shell(cmdstr)
 
     return exec_filename
@@ -946,16 +990,22 @@ class CJit:
     so_filename         = os.path.join(_C_CACHE,fname+".so")
     gen_func_name       = self._gen_func_name
 
+    autosched_file      = os.path.join(_HALIDE_LIB,
+                                All_Autoschedulers[current_autoscheduler])
+
     cmdstr1 = (f"{exec_filename} -g {gen_func_name} -e object,c_header "+
                f"-f {fname} "+ # generates .o and .h file
-               f"-o {_C_CACHE} target=host")
+               f"-p {autosched_file} -s {current_autoscheduler} "+
+               f"-o {_C_CACHE} auto_schedule=true target=host")
 
     cmdstr2 = (f"clang -fPIC -shared {obj_filename} -o {so_filename}")
 
     if check_makedep([obj_filename,header_filename],[exec_filename]):
-        _shell(cmdstr1)
+        #print(cmdstr1)
+        _quiet_shell(cmdstr1)
 
     if check_makedep([so_filename],[obj_filename]):
+        #print(cmdstr2)
         _shell(cmdstr2)
 
     return (so_filename, fname)
@@ -968,129 +1018,6 @@ class CJit:
     outs = [ _ndarray_to_halide_buf(arr) for arr in outputs ]
 
     self._cfun(*(params+imgs+outs))
-
-
-  """
-  def generate_wrapper_str(self):
-    # this is the name of the C-function we stuck in the .o file
-    Halide_fname        = f"{self._name}_{self._hashstr}"
-
-    # some generic definitions...
-    lines   = ["halide_type_t f64_type{halide_type_float,64,1};",
-               "halide_type_t u8_type{halide_type_int,8,1};"]
-
-    # convert the calling signature...
-    sig_args    = []
-    call_args   = []
-    buf_repack  = []
-
-    # sizes
-    for sz in self._func.sizes:
-        sig_args.append(f"int {sz.name}")
-        call_args.append(str(sz.name))
-
-    # vars
-    def unpack_var(v):
-
-    for v in self._func.vars:
-        typstr  = self.get_type(v.type)
-        sig_args.append(f"{typstr} {v.name}")
-        # CALL ARGS MUST BE UNPACKED AND BUFFERS SET UP
-    # output
-    # THIS MUST ALSO BE UNPACKED
-    out_typstr  = self.get_type(self._func.rettype)
-    sig_args.append(f"{out_typstr}* out")
-
-    # relations
-    for r in self._func.relations:
-        sig_args.append(f"uint8_t* {r.name}")
-        # CALL ARGS MUST BE CONVERTED TO BUFFERS
-
-    if nm == "output":
-      defs.append(f"{typ}* {nm}")
-
-    # unpack sizes
-    for sz in sizes:
-      params.append(sz)
-
-    # unpack vars
-    def unpack_var(v):
-      if isinstance(v, tuple):
-        for subv in v:
-          unpack_var(subv)
-      elif type(v) is np.ndarray:
-        img_ranges.append(v.shape)
-      else:
-        assert type(v) is float
-        params.append(v)
-    for v in vs:
-      unpack_var(v)
-
-    def unpack_out(val):
-      if isinstance(val, tuple):
-        for o in val:
-          unpack_out(o)
-      else:
-        assert type(val) is np.ndarray
-        out_ranges.append(val.shape)
-    unpack_out(out)
-
-
-
-    def pack_buffer_t_str(name, ptr, typ):
-        assert type(name) is str
-        assert type(ptr)  is str
-
-        lines   = []
-        bnm     = f"{name}_buffer"
-        if type(typ) is tuple: # then this is a binary relation...
-            typstr  = "u8_type"
-            shape   = typ
-        else:
-            typstr  = "f64_type"
-            shape   = typ.shape_or_scalar()
-            if len(shape) == 0:
-                shape = (1,)
-
-        for k in range(0,a.ndim):
-            s = int(a.strides[k] / a.itemsize)
-            assert a.strides[k] % a.itemsize == 0
-            buf.dim[k] = halide_dimension_t(0,a.shape[k],s,0)
-
-        lines   += [f"halide_buffer_t {bnm};"],
-        lines   += [f"halide_dimension_t dims[{n_dims}];"]
-        for k in range(0,ndim):
-            s   = int(strides[k])
-            sb  = s * 8 if stype is float else s
-            lines   += [f"    dims[{k}].min = 0;",
-                        f"    dims[{k}].extent = {s};",
-                        f"    dims[{k}].stride = {sb};",
-                        f"    dims[{k}].flags = 0;"]
-
-        lines   += [f"{bnm}.device = 0;",
-                    f"{bnm}.device_interface = NULL;",
-                    f"{bnm}.host = {ptr};",
-                    f"{bnm}.flags = 0;",
-                    f"{bnm}.type = f64_type;",
-                    f"{bnm}.dimensions = {n_dims};",
-                    f"{bnm}.dim = dims;",
-                    f"{bnm}.padding = NULL;"]
-
-  def getstructs(self):
-    return [ x for x in self._typdefs ]
-
-  def get_type(self, typ):
-    typname, typdef   = get_typstr(typ)
-
-    # make sure to cache the used tuple structs...
-    if type(typ) is T.Tuple:
-      for t in typ.types:
-        self.get_type(t)
-      self._typdefs[typdef] = True
-
-    return typname
-  """
-
 
 
 

@@ -3,3 +3,7 @@ numpy
 scipy
 matplotlib
 pysmt
+pandas
+
+jax
+torch

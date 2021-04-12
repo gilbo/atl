@@ -508,6 +508,7 @@ All_Autoschedulers = {
 
 current_autoscheduler = 'Li2018'
 def set_autoscheduler(name):
+    global current_autoscheduler
     if name in All_Autoschedulers:
         current_autoscheduler = name
 

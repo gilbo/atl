@@ -195,6 +195,10 @@ class AST_to_NIR:
                                                            len(out_binds))
       preds.append(p)
       body        = self.normalize(e.body)
+      if self._ranges_type() != body.type:
+        print(f"ranges_type mismatch at {e.srcinfo}")
+        print("ranges_type() is ", self._ranges_type())
+        print("body.type is ", body.type)
       assert self._ranges_type() == body.type
       return NIR.Contract( gen_binds, sum_binds, 1.0, preds,
                            [NIR.factor(body, out_binds, Fraction(1))],

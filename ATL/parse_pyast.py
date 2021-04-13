@@ -312,7 +312,7 @@ def parse_pyast( module_ast, func_globals, srclocals, getsrcinfo,
       for nm,_ in idxs:
         srclocals[nm] = nm
     else:
-      raise TypeError(f"{getsrcinfo(e)}: unexpected expression "
+      raise TypeError(f"{getsrcinfo(lhs)}: unexpected expression "
                       f"on lhs '{etyp}'")
 
     # now parse the right-hand-side

@@ -242,6 +242,7 @@ class NIR_FilterDown:
         # prevent endless recursion
         return e
       elif type(e) is not NIR.Contract:
+        shape = e.type.shape_or_scalar() # not sure why, but this fixed bug
         return self.pushdown( e, [ False for _ in shape ], [] )
       else:
         # otherwise, we must unpack the contraction, and thereby

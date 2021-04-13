@@ -25,7 +25,7 @@ def qform1():
       RESULTS.append({ "problem":"qform1",
                        "prob_rettype":"scalar",
                        "compiler":compiler_str,
-                       "N":N,
+                       "N":N*N,
                        "f_ms_avg":basetime,
                        "Hf_ms_avg":htime,
                      })
@@ -57,7 +57,7 @@ def qform2():
       RESULTS.append({ "problem":"qform2",
                        "prob_rettype":"scalar",
                        "compiler":compiler_str,
-                       "N":N,
+                       "N":N*N,
                        "f_ms_avg":basetime,
                        "Df_ms_avg":dtime,
                      })
@@ -75,7 +75,42 @@ def qform2():
 qform2()
 
 
+
+def img_ARAP():
+  mask_vals = [0,1,2]
+
+  def do_run(compiler_str, get_time):
+    for mask_no in [0,1,2]:
+      W, H, Rtimes, JtJtimes = get_time(mask_no)
+      #basetime, dtime   = get_time(N,n_iters=n_iters)
+      Rtimes    = 1e3 * (Rtimes.avg() or math.inf)
+      JtJtimes  = 1e3 * (JtJtimes.avg() or math.inf)
+      print( f"{W:4d}, {H:4d}: {Rtimes:8.3f} ms    {JtJtimes:8.3f} ms "
+             f"  {JtJtimes/Rtimes:8.3f}" )
+      RESULTS.append({ "problem":"img_ARAP",
+                       "prob_rettype":"vector",
+                       "compiler":compiler_str,
+                       "N":W*H,
+                       "mask_number":mask_no,
+                       "f_ms_avg":Rtimes,
+                       "JtJ_ms_avg":JtJtimes,
+                     })
+
+  def ATL():
+    from perf_ATL.imgARAP import get_time
+    do_run("ATL",get_time)
+  ATL()
+
+  def JAX():
+    from perf_jax.imgARAP import get_time
+    do_run("JAX",get_time)
+  JAX()
+
+img_ARAP()
+
+
 RESULTS = pd.DataFrame(RESULTS)
+RESULTS.to_csv(str(os.path.join(_HERE_DIR,"results.csv")))
 
 print(RESULTS)
 

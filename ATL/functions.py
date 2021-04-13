@@ -27,6 +27,7 @@ from .checks      import TC_Lite
 _All_backends = ['C','Halide']
 _default_backend = 'C'
 def set_backend(name):
+  global _default_backend
   if name in _All_backends:
     _default_backend = name
 
@@ -231,6 +232,7 @@ class Function:
 
   def simplify(self):
     return self._nir_simplify_func()
+    #return self._nir_filterdown()
 
   def proj(self, label):
     rtyp  = self.return_type()
@@ -426,7 +428,8 @@ class Function:
     n_expected  = len(self._ast.vars)
     if 'output' in kwargs:
       output    = kwargs['output']
-      n_supplied -= 1
+      kwargs    = kwargs.copy()
+      del kwargs['output']
     if n_supplied > n_expected:
       raise TypeError(f"expected no more than {n_expected} args, "
                       f"but got {n_supplied}")
@@ -439,12 +442,12 @@ class Function:
     #         mapping from variable names to derivative names
     dvars = {}
     arg_i   = 0
-    N_kw    = 0
+    used_kw = dict()
     for vd in self._ast.vars:
       # case: argument was supplied by name
       if str(vd.name) in kwargs:
         val     = kwargs[str(vd.name)]
-        N_kw   += 1
+        used_kw[str(vd.name)] = True
       # case: no more positional arguments available
       elif arg_i >= len(args):
         val     = None
@@ -464,8 +467,11 @@ class Function:
         # this case means, "yes, and here is the differential's name"
         dvars[str(vd.name)] = val
 
-    if N_kw != len(kwargs):
-      raise TypeError("Some named argument was unrecognized.")
+    if len(used_kw) != len(kwargs):
+      for key in kwargs:
+        if key not in used_kw:
+          raise TypeError(f"keyword argument '{key}' was unrecognized.")
+      assert False, "couldn't find unused keyword; impossible"
 
     # Step 2: need to check that the differential names don't clash,
     #         and assign safe names to the unnamed differentials

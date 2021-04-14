@@ -40,6 +40,11 @@ def qform1():
     do_run("JAX", get_time)
   JAX()
 
+  def pytorch():
+    from perf_pytorch.qform1 import get_time
+    do_run("pytorch", get_time)
+  pytorch()
+
 qform1()
 
 
@@ -71,6 +76,11 @@ def qform2():
     from perf_jax.qform2 import get_time
     do_run("JAX", get_time)
   JAX()
+
+  def pytorch():
+    from perf_pytorch.qform2 import get_time
+    do_run("pytorch", get_time)
+  pytorch()
 
 qform2()
 
